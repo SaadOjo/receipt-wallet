@@ -1,0 +1,32 @@
+Programming Language: 
+  Go
+
+Framework:
+  Gin (web framework)
+
+Program Abstract:
+  Revenue authority service that signs receipt hashes without seeing receipt contents. Cash registers generate receipts and send SHA-256 hashes to this service for ECDSA signing. Enables receipt verification while preserving privacy and traditional cash register workflow.
+
+Cryptography:
+  - Hash Algorithm: SHA-256
+  - Signing Algorithm: ECDSA (P-256 curve)
+  - Key Storage: Private key stored in repository (POC only)
+
+Configuration:
+  - Config File: YAML format
+  - Port: 4406
+  - Key Files: PEM format
+  - Hash Format: Base64 encoded (44 chars for SHA-256)
+  - Validation: Strict input validation
+  - HTTP Codes: Standard HTTP status codes
+
+API:
+  POST /sign
+    Request: {"hash": "base64_encoded_sha256"}
+    Response: {"signature": "base64_encoded_ecdsa_signature"}
+    
+  GET /public-key
+    Response: {"public_key": "base64_encoded_public_key"}
+
+Error Format:
+    {"error": "error_message"} 

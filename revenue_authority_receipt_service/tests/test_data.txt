@@ -1,0 +1,34 @@
+# Test Data
+
+## Valid SHA-256 Hashes (Base64 encoded, 44 characters)
+- "test message": LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=
+- "hello world": uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=
+- "receipt123": 6aWnj9+6kjf0wQr1j3TG0d+GxJ7L2r9bD4I8YzXKqWs=
+
+## Invalid Test Cases
+- Too short: "abc" (3 characters)
+- Too long: "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ=X" (45 characters)
+- Invalid base64: "!@#$%^&*()1234567890!@#$%^&*()1234567890ab" (44 chars but invalid base64)
+- Missing padding: "LPJNul+wow4m6DsqxbninhsWHlwfp0JecwQzYpOLmCQ" (43 characters)
+
+## Expected Response Format
+### Success Response (POST /sign)
+```json
+{
+  "signature": "base64_encoded_ecdsa_signature_here"
+}
+```
+
+### Success Response (GET /public-key)
+```json
+{
+  "public_key": "base64_encoded_public_key_here"
+}
+```
+
+### Error Response
+```json
+{
+  "error": "error message here"
+}
+```
