@@ -1,0 +1,145 @@
+Programming Language: 
+  Go
+
+Framework:
+  Gin (web framework for HTTP server and web UI)
+
+Program Abstract:
+  Fake cash register service that simulates a traditional point-of-sale system within the receipt-wallet PoC ecosystem. Generates transaction receipts, computes SHA-256 hashes, and integrates with the revenue authority service for cryptographic signing. Implements privacy-preserving receipt distribution by encrypting receipts with ephemeral wallet keys and coordinating with a receipt bank for secure delivery to wallet holders.
+
+Architecture Overview:
+  1. Receipt Generation: Creates structured transaction receipts with itemized data
+  2. Hash & Sign: Computes SHA-256 hash and requests ECDSA signature from revenue authority service
+  3. Wallet Integration: Uses browser camera to scan QR codes containing ephemeral public keys from wallet
+  4. Encryption: Encrypts (receipt + signature) using wallet's ephemeral public key
+  5. Banking: Submits encrypted data to receipt bank and receives webhook confirmations
+  6. Web Interface: Browser-based UI for cashier transaction input and QR code scanning
+
+Configuration:
+  - Config File: YAML format (consistent with sister project)
+  - Standalone Mode: Boolean flag to disable external services for offline demo
+  - Revenue Authority Service: Configurable URL (defaults to http://127.0.0.1:4406)
+  - Receipt Bank Service: Configurable URL with fixed endpoint names
+  - Port: Configurable HTTP port for web interface
+  - Verbose Mode: Configurable logging level for development
+  - Store Configuration: VKN, store name, address for receipt generation
+
+Receipt Data Structure (Turkish Yazarkasa Format):
+  JSON format with required fields:
+    - Z Report Number: Daily sequential report identifier (Günlük Z raporu numarası)
+    - Transaction ID: Unique transaction identifier
+    - Timestamp: ISO 8601 format transaction time
+    - Store VKN: Store tax identification number
+    - Store Name: Business name for receipt header
+    - Store Address: Business address
+    - Items: Array of {name, quantity, unit_price, total_price, tax_rate}
+    - Tax Amount: Calculated KDV (VAT) totals by rate (10%, 20%)
+    - Total Amount: Final transaction total
+    - Payment Method: Nakit (Cash), Kart (Card), etc.
+    - Receipt Serial: Sequential receipt number
+
+Cryptography:
+  - Hash Algorithm: SHA-256 (compatible with revenue authority service)
+  - Encryption: ECDSA (same curve as revenue authority - P-256)
+  - Key Handling: Ephemeral public keys obtained via QR code scanning
+  - Signature Integration: Incorporates ECDSA signatures from revenue authority
+
+Revenue Authority Integration:
+  - Service URL: Configurable (defaults to http://127.0.0.1:4406)
+  - Hash Format: Base64 encoded SHA-256 (44 characters)
+  - Request: POST /sign {"hash": "base64_encoded_sha256"}
+  - Response: {"signature": "base64_encoded_ecdsa_signature"}
+  - Error Handling: Display error to user, allow manual retry
+
+Wallet Integration:
+  - Method: Browser camera QR code scanning
+  - QR Content: Base64 encoded ephemeral public key
+  - Integration: JavaScript camera API in web interface
+  - User Flow: Scan QR → validate key → proceed with transaction
+
+Receipt Bank Integration:
+  - Communication: Webhook-based confirmation system
+  - Submission Format: {"ephemeral_key": "...", "encrypted_data": "..."}
+  - Confirmation: Webhook endpoint to receive download confirmations
+  - URL Configuration: Configurable base URL with fixed endpoint names
+
+Error Handling:
+  All error scenarios cancel the current transaction, forcing user to start over:
+  - Revenue Authority Unavailable: Display error, cancel transaction
+  - Missing/Invalid Ephemeral Key: QR scan error, cancel transaction
+  - Receipt Bank Unreachable: Banking service error, cancel transaction
+  - Invalid Hash/Signature: Cryptographic error, cancel transaction
+  - Webhook Timeout: Display timeout warning, cancel transaction
+  - Standalone Mode: All external service calls return mock success responses
+
+User Interface (Turkish Yazarkasa Style):
+  - Web UI Only: Browser-based cash register interface
+  - Styling Framework: Tailwind CSS for modern, responsive design
+  - Design Philosophy: Beautiful, minimalist interface without compromising functionality
+  - Button-Based Input: Product buttons, quantity keypad, payment method buttons
+  - Cash Register Layout: Traditional POS button arrangement with modern aesthetics
+  - Product Selection: Predefined product buttons with prices (configurable)
+  - Quantity Input: Numeric keypad for item quantities
+  - Payment Methods: Nakit (Cash), Kart (Card) buttons
+  - QR Scanner: Camera integration for ephemeral key capture during checkout
+  - Receipt Display: Show generated receipt before finalizing
+  - Status Display: Real-time transaction processing status
+  - Log Window: Small logging area (visible in verbose mode)
+  - Cancel Transaction: Red cancel button to abort current transaction
+  - Responsive Design: Works on tablets and desktop displays
+  - Visual Feedback: Button states, loading indicators, success/error animations
+
+Testing Strategy:
+  - Unit Tests: Receipt generation, hash computation, encryption functions
+  - Integration Tests: Revenue authority service communication
+  - Mock Services: Mock receipt bank for isolated testing
+  - End-to-End: Complete workflow simulation with all components
+  - Load Testing: Basic performance validation requirements
+
+Logging & Monitoring:
+  - Verbose Mode: Configurable detailed logging
+  - Log Display: Small window in web UI showing operation status
+  - Transaction Logs: Receipt processing and status tracking
+  - Service Communication: Revenue authority and receipt bank interactions
+  - Error Tracking: Failed operations and user retry attempts
+
+Data Persistence:
+  - No Local Storage: Stateless operation for PoC demonstration
+  - In-Memory Only: Transaction data cleared after completion
+  - No Audit Trail: Simplified implementation for proof of concept
+
+Deployment:
+  - Standalone Executable: Simple Go binary for PoC demonstration
+  - Configuration: Single YAML file for all settings
+
+Programming Architecture:
+  - Interface-Based Design: Use Go interfaces for all external services
+  - Revenue Authority Interface: Abstraction for signing service (real vs mock)
+  - Receipt Bank Interface: Abstraction for banking service (real vs mock)
+  - QR Scanner Interface: Abstraction for key input (camera vs manual vs mock)
+  - Configurable Implementations: Switch between real and mock via configuration
+  - Dependency Injection: Inject implementations based on standalone mode setting
+
+Transaction Workflow (Yazarkasa Style):
+  1. Product Selection: Click product buttons to add items to transaction
+  2. Quantity Adjustment: Use keypad to modify quantities
+  3. Payment Selection: Choose Nakit/Kart payment method
+  4. Receipt Generation: Display formatted Turkish receipt preview
+  5. QR Scan (if not standalone): Scan wallet QR for ephemeral key
+  6. Processing: Hash → Sign → Encrypt → Bank submission
+  7. Completion: Show success/failure and clear transaction
+  8. Cancel Option: Red cancel button available at any step
+
+Standalone Mode Operation:
+  - Mock Revenue Authority: Returns fake signatures immediately
+  - Mock Receipt Bank: Returns success confirmations without network calls
+  - Mock QR Scanner: Uses predefined test keys or manual input
+  - Offline Demonstration: Full UI workflow without external dependencies
+  - Configuration Flag: Enable/disable via YAML setting
+
+Product Configuration:
+  - Configurable Product List: YAML-defined products with prices
+  - Turkish Product Names: Realistic Turkish product names and categories
+  - Tax Rates: Updated Turkish KDV rates (10%, 20%)
+  - Price Formatting: Turkish Lira currency formatting (₺)
+  - Product Categories: Organized product groups for better UX

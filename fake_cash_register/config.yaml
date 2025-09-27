@@ -1,0 +1,27 @@
+server:
+  port: 8080
+  verbose: true
+
+standalone_mode: false
+
+store:
+  vkn: "1234567890"
+  name: "Demo Mağazası"
+  address: "Örnek Mahalle, Kadıköy/İstanbul"
+
+revenue_authority:
+  url: "http://127.0.0.1:4406"
+
+receipt_bank:
+  url: "http://localhost:5000"
+  webhook_path: "/webhook"
+
+kisim:
+  - id: 1
+    name: "Temel Gıda"
+    tax_rate: 10
+    description: "Ekmek, süt, temel gıda maddeleri"
+  - id: 2
+    name: "Yemek"
+    tax_rate: 20
+    description: "Hazır yemek, atıştırmalık, içecek"

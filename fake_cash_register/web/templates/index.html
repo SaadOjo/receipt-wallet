@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.StoreName}} - Yazar Kasa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qr-scanner@1.4.2/qr-scanner.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'cash-green': '#22c55e',
+                        'cash-blue': '#3b82f6',
+                        'cash-red': '#ef4444',
+                        'cash-gray': '#374151',
+                        'register-dark': '#1f2937',
+                        'register-light': '#f3f4f6',
+                        'screen-bg': '#0d1117',
+                        'screen-text': '#58a6ff'
+                    },
+                    fontFamily: {
+                        'mono': ['Monaco', 'Menlo', 'Consolas', 'monospace'],
+                        'digital': ['Orbitron', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        .cash-register-shadow {
+            box-shadow: 
+                0 0 0 4px #374151,
+                0 0 0 8px #4b5563,
+                0 20px 40px rgba(0, 0, 0, 0.3),
+                inset 0 2px 4px rgba(255, 255, 255, 0.1);
+        }
+        .screen-glow {
+            box-shadow: 
+                inset 0 0 20px rgba(88, 166, 255, 0.3),
+                0 0 20px rgba(88, 166, 255, 0.2);
+        }
+        .button-press {
+            transform: translateY(2px);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-800 to-gray-900 min-h-screen font-sans flex items-center justify-center p-4">
+    <!-- Cash Register Body -->
+    <div class="bg-register-dark p-8 rounded-2xl cash-register-shadow max-w-6xl w-full">
+        <!-- Cash Register Screen -->
+        <div class="bg-screen-bg p-6 rounded-lg mb-8 screen-glow">
+            <!-- Header Info -->
+            <div class="flex justify-between items-center mb-4">
+                <div class="text-screen-text">
+                    <div class="font-digital text-lg">{{.StoreName}}</div>
+                    <div class="text-sm opacity-75">VKN: {{.StoreVKN}}</div>
+                </div>
+                <div class="text-right text-screen-text">
+                    <div id="current-time" class="font-digital text-lg"></div>
+                    {{if .Standalone}}
+                    <div class="text-xs text-yellow-400">OFFLINE</div>
+                    {{else}}
+                    <div class="text-xs text-green-400">ONLINE</div>
+                    {{end}}
+                </div>
+            </div>
+            
+            <!-- Transaction Display -->
+            <div class="border border-gray-600 rounded p-4 bg-gray-900 min-h-[300px]">
+                <div class="text-screen-text font-mono text-sm">
+                    <div class="flex justify-between border-b border-gray-600 pb-2 mb-2">
+                        <span>ÜRÜN</span>
+                        <span>MİKTAR</span>
+                        <span>TUTAR</span>
+                    </div>
+                    <div id="transaction-display" class="min-h-[200px]">
+                        <div class="text-center text-gray-500 py-8 font-sans">
+                            Kısım seçin...
+                        </div>
+                    </div>
+                    <div class="border-t border-gray-600 pt-2 mt-2">
+                        <div class="flex justify-between text-lg font-bold">
+                            <span>TOPLAM:</span>
+                            <span id="total-display">₺0.00</span>
+                        </div>
+                        <div id="payment-display" class="text-center text-sm opacity-75 mt-1"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cash Register Controls -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left: Kisim Buttons -->
+            <div class="space-y-4">
+                <h3 class="text-white font-semibold text-center mb-4">KISIM SEÇİMİ</h3>
+                <div class="space-y-3">
+                    {{range .Kisim}}
+                    <button class="kisim-btn w-full p-4 bg-gradient-to-b from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg transition-all duration-150 active:button-press" 
+                            data-kisim-id="{{.ID}}" 
+                            data-kisim-name="{{.Name}}" 
+                            data-tax-rate="{{.TaxRate}}">
+                        <div class="text-lg">{{.Name}}</div>
+                        <div class="text-sm opacity-90">KDV %{{.TaxRate}}</div>
+                        <div class="text-xs opacity-75">{{.Description}}</div>
+                    </button>
+                    {{end}}
+                </div>
+                
+                <!-- Price Input -->
+                <div class="bg-register-light p-4 rounded-lg mt-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Fiyat Girişi</label>
+                    <input id="price-input" type="text" placeholder="0.00" class="w-full px-3 py-2 border border-gray-300 rounded text-center text-lg font-mono">
+                    <button id="add-item-btn" class="w-full mt-2 py-2 bg-green-500 hover:bg-green-600 text-white font-semibold rounded transition-colors disabled:opacity-50" disabled>
+                        Ekle
+                    </button>
+                </div>
+            </div>
+
+            <!-- Center: Numeric Keypad -->
+            <div class="space-y-4">
+                <h3 class="text-white font-semibold text-center mb-4">SAYISAL KLAVYE</h3>
+                <div class="grid grid-cols-3 gap-3">
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="1">1</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="2">2</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="3">3</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="4">4</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="5">5</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="6">6</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="7">7</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="8">8</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="9">9</button>
+                    <button id="clear-btn" class="p-4 bg-gradient-to-b from-red-400 to-red-600 hover:from-red-500 hover:to-red-700 text-white font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press">C</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num="0">0</button>
+                    <button class="num-btn p-4 bg-gradient-to-b from-gray-300 to-gray-400 hover:from-gray-400 hover:to-gray-500 text-gray-800 font-bold text-xl rounded-lg shadow-lg transition-all duration-150 active:button-press" data-num=".">.</button>
+                </div>
+                
+                <!-- Quantity Controls -->
+                <div class="bg-register-light p-4 rounded-lg">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Miktar</label>
+                    <input id="quantity-input" type="text" value="1" class="w-full px-3 py-2 border border-gray-300 rounded text-center text-lg font-mono">
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <button id="qty-minus" class="py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded transition-colors">-</button>
+                        <button id="qty-plus" class="py-2 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded transition-colors">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Payment & Actions -->
+            <div class="space-y-4">
+                <h3 class="text-white font-semibold text-center mb-4">ÖDEME & İŞLEMLER</h3>
+                
+                <!-- Payment Methods -->
+                <div class="space-y-3">
+                    <button id="payment-cash" class="payment-btn w-full p-4 bg-gradient-to-b from-green-400 to-green-600 hover:from-green-500 hover:to-green-700 text-white font-semibold rounded-lg shadow-lg transition-all duration-150 active:button-press" data-method="Nakit">
+                        💵 NAKİT
+                    </button>
+                    <button id="payment-card" class="payment-btn w-full p-4 bg-gradient-to-b from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700 text-white font-semibold rounded-lg shadow-lg transition-all duration-150 active:button-press" data-method="Kart">
+                        💳 KART
+                    </button>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="space-y-3 mt-6">
+                    <button id="checkout-btn" class="w-full py-4 bg-gradient-to-b from-green-500 to-green-700 hover:from-green-600 hover:to-green-800 text-white font-bold text-lg rounded-lg shadow-lg transition-all duration-150 active:button-press disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        ÖDEME AL
+                    </button>
+                    <button id="delete-item-btn" class="w-full py-3 bg-gradient-to-b from-orange-500 to-orange-700 hover:from-orange-600 hover:to-orange-800 text-white font-semibold rounded-lg shadow-lg transition-all duration-150 active:button-press disabled:opacity-50" disabled>
+                        ÜRÜNSİL
+                    </button>
+                    <button id="cancel-btn" class="w-full py-3 bg-gradient-to-b from-red-500 to-red-700 hover:from-red-600 hover:to-red-800 text-white font-semibold rounded-lg shadow-lg transition-all duration-150 active:button-press">
+                        İPTAL
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- QR Scanner Modal -->
+    <div id="qr-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold mb-4">Cüzdan QR Kodu Tarat</h3>
+                <div id="qr-reader" class="mb-4"></div>
+                <div class="flex justify-end space-x-3">
+                    <button id="qr-cancel" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">İptal</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Receipt Modal -->
+    <div id="receipt-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <h3 class="text-lg font-semibold mb-4">Fiş Önizleme</h3>
+                    <div id="receipt-content" class="font-mono text-sm whitespace-pre-line bg-gray-50 p-4 rounded border"></div>
+                    <div class="mt-6 flex justify-end space-x-3">
+                        <button id="receipt-cancel" class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">İptal</button>
+                        <button id="receipt-confirm" class="px-4 py-2 bg-cash-green text-white rounded-lg hover:bg-green-600">Onayla</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Messages -->
+    <div id="status-message" class="hidden fixed top-4 right-4 z-50 max-w-sm"></div>
+
+    <!-- Log Panel (only in verbose mode) -->
+    {{if .Verbose}}
+    <div class="fixed bottom-4 left-4 bg-black bg-opacity-90 text-green-400 text-xs font-mono p-4 rounded-lg max-w-md max-h-32 overflow-y-auto border border-green-600">
+        <div class="text-green-300 mb-2 font-bold">SYSTEM LOG</div>
+        <div id="log-content" class="leading-tight"></div>
+    </div>
+    {{end}}
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
