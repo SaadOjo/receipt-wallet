@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"fake-cash-register/internal/models"
 )
@@ -142,137 +141,10 @@ func SerializeReceipt(receipt *models.Receipt) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// DeserializeReceipt converts binary format v1 to models.Receipt
-func DeserializeReceipt(data []byte) (*models.Receipt, error) {
-	if len(data) < HeaderSize {
-		return nil, fmt.Errorf("data too short for header")
-	}
-
-	buf := bytes.NewReader(data)
-
-	// Verify header
-	var magic uint16
-	if err := binary.Read(buf, binary.BigEndian, &magic); err != nil {
-		return nil, fmt.Errorf("failed to read magic bytes: %v", err)
-	}
-	if magic != MagicBytes {
-		return nil, fmt.Errorf("invalid magic bytes: expected 0x%04X, got 0x%04X", MagicBytes, magic)
-	}
-
-	var version uint8
-	if err := binary.Read(buf, binary.BigEndian, &version); err != nil {
-		return nil, fmt.Errorf("failed to read version: %v", err)
-	}
-	if version != FormatVersion {
-		return nil, fmt.Errorf("unsupported format version: %d", version)
-	}
-
-	var reserved uint8
-	if err := binary.Read(buf, binary.BigEndian, &reserved); err != nil {
-		return nil, fmt.Errorf("failed to read reserved byte: %v", err)
-	}
-	if reserved != Reserved {
-		return nil, fmt.Errorf("invalid reserved byte: expected 0x%02X, got 0x%02X", Reserved, reserved)
-	}
-
-	receipt := &models.Receipt{}
-
-	// Timestamp
-	var timestamp uint64
-	if err := binary.Read(buf, binary.BigEndian, &timestamp); err != nil {
-		return nil, fmt.Errorf("failed to read timestamp: %v", err)
-	}
-	receipt.Timestamp = time.Unix(int64(timestamp), 0)
-
-	// Z-Report number
-	var zReportNum uint32
-	if err := binary.Read(buf, binary.BigEndian, &zReportNum); err != nil {
-		return nil, fmt.Errorf("failed to read Z-Report number: %v", err)
-	}
-	receipt.ZReportNumber = fmt.Sprintf("Z%04d", zReportNum)
-
-	// Transaction ID
-	var txID uint32
-	if err := binary.Read(buf, binary.BigEndian, &txID); err != nil {
-		return nil, fmt.Errorf("failed to read transaction ID: %v", err)
-	}
-	receipt.TransactionID = fmt.Sprintf("TX%s%04d", receipt.Timestamp.Format("20060102"), txID)
-
-	// Store VKN
-	var storeVKN uint32
-	if err := binary.Read(buf, binary.BigEndian, &storeVKN); err != nil {
-		return nil, fmt.Errorf("failed to read store VKN: %v", err)
-	}
-	receipt.StoreVKN = fmt.Sprintf("%010d", storeVKN)
-
-	// Store name
-	var storeNameLen uint32
-	if err := binary.Read(buf, binary.BigEndian, &storeNameLen); err != nil {
-		return nil, fmt.Errorf("failed to read store name length: %v", err)
-	}
-	storeNameBytes := make([]byte, storeNameLen)
-	if _, err := buf.Read(storeNameBytes); err != nil {
-		return nil, fmt.Errorf("failed to read store name: %v", err)
-	}
-	receipt.StoreName = string(storeNameBytes)
-
-	// Store address
-	var storeAddressLen uint32
-	if err := binary.Read(buf, binary.BigEndian, &storeAddressLen); err != nil {
-		return nil, fmt.Errorf("failed to read store address length: %v", err)
-	}
-	storeAddressBytes := make([]byte, storeAddressLen)
-	if _, err := buf.Read(storeAddressBytes); err != nil {
-		return nil, fmt.Errorf("failed to read store address: %v", err)
-	}
-	receipt.StoreAddress = string(storeAddressBytes)
-
-	// Total amount
-	var totalKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &totalKurus); err != nil {
-		return nil, fmt.Errorf("failed to read total amount: %v", err)
-	}
-	receipt.TotalAmount = float64(totalKurus) / 100.0
-
-	// Payment method
-	var paymentLen uint32
-	if err := binary.Read(buf, binary.BigEndian, &paymentLen); err != nil {
-		return nil, fmt.Errorf("failed to read payment method length: %v", err)
-	}
-	paymentBytes := make([]byte, paymentLen)
-	if _, err := buf.Read(paymentBytes); err != nil {
-		return nil, fmt.Errorf("failed to read payment method: %v", err)
-	}
-	receipt.PaymentMethod = string(paymentBytes)
-
-	// Receipt serial
-	var receiptSerial uint32
-	if err := binary.Read(buf, binary.BigEndian, &receiptSerial); err != nil {
-		return nil, fmt.Errorf("failed to read receipt serial: %v", err)
-	}
-	receipt.ReceiptSerial = fmt.Sprintf("F%04d", receiptSerial)
-
-	// Item count
-	var itemCount uint16
-	if err := binary.Read(buf, binary.BigEndian, &itemCount); err != nil {
-		return nil, fmt.Errorf("failed to read item count: %v", err)
-	}
-
-	// Items
-	receipt.Items = make([]models.Item, itemCount)
-	for i := uint16(0); i < itemCount; i++ {
-		if err := deserializeItem(buf, &receipt.Items[i]); err != nil {
-			return nil, fmt.Errorf("failed to deserialize item %d: %v", i, err)
-		}
-	}
-
-	// Tax breakdown
-	if err := deserializeTaxBreakdown(buf, &receipt.TaxBreakdown); err != nil {
-		return nil, fmt.Errorf("failed to deserialize tax breakdown: %v", err)
-	}
-
-	return receipt, nil
-}
+// NOTE: DeserializeReceipt and ParseSignedReceipt functions are intentionally NOT implemented.
+// This cash register system only ISSUES receipts (serialize → hash → sign → encrypt → submit).
+// It does not need to READ back or verify receipts, so deserialization functions would be dead code.
+// If receipt retrieval/verification features are needed in the future, implement them then.
 
 // CreateSignedReceipt concatenates binary receipt with ECDSA signature
 func CreateSignedReceipt(binaryReceipt []byte, signature []byte) ([]byte, error) {
@@ -283,24 +155,8 @@ func CreateSignedReceipt(binaryReceipt []byte, signature []byte) ([]byte, error)
 	result := make([]byte, len(binaryReceipt)+SignatureSize)
 	copy(result, binaryReceipt)
 	copy(result[len(binaryReceipt):], signature)
-	
+
 	return result, nil
-}
-
-// ParseSignedReceipt extracts binary receipt and signature
-func ParseSignedReceipt(signedData []byte) (binaryReceipt []byte, signature []byte, err error) {
-	if len(signedData) < SignatureSize {
-		return nil, nil, fmt.Errorf("signed data too short: minimum %d bytes required", SignatureSize)
-	}
-
-	receiptLen := len(signedData) - SignatureSize
-	binaryReceipt = make([]byte, receiptLen)
-	signature = make([]byte, SignatureSize)
-
-	copy(binaryReceipt, signedData[:receiptLen])
-	copy(signature, signedData[receiptLen:])
-
-	return binaryReceipt, signature, nil
 }
 
 // Helper functions for parsing string fields to integers
@@ -309,7 +165,7 @@ func parseZReportNumber(zReport string) (uint32, error) {
 	if len(zReport) < 2 || zReport[0] != 'Z' {
 		return 0, fmt.Errorf("invalid Z-Report format: %s", zReport)
 	}
-	
+
 	var num uint32
 	if _, err := fmt.Sscanf(zReport[1:], "%d", &num); err != nil {
 		return 0, fmt.Errorf("failed to parse Z-Report number: %v", err)
@@ -321,7 +177,7 @@ func parseTransactionID(txID string) (uint32, error) {
 	if len(txID) < 11 || txID[:2] != "TX" {
 		return 0, fmt.Errorf("invalid transaction ID format: %s", txID)
 	}
-	
+
 	// Extract just the sequential number after TXYYYYMMDD
 	var num uint32
 	if _, err := fmt.Sscanf(txID[10:], "%d", &num); err != nil {
@@ -342,7 +198,7 @@ func parseReceiptSerial(serial string) (uint32, error) {
 	if len(serial) < 2 || serial[0] != 'F' {
 		return 0, fmt.Errorf("invalid receipt serial format: %s", serial)
 	}
-	
+
 	var num uint32
 	if _, err := fmt.Sscanf(serial[1:], "%d", &num); err != nil {
 		return 0, fmt.Errorf("failed to parse receipt serial: %v", err)
@@ -381,45 +237,6 @@ func serializeItem(buf *bytes.Buffer, item models.Item) error {
 	return nil
 }
 
-func deserializeItem(buf *bytes.Reader, item *models.Item) error {
-	// KisimID
-	var kisimID uint16
-	if err := binary.Read(buf, binary.BigEndian, &kisimID); err != nil {
-		return fmt.Errorf("failed to read KisimID: %v", err)
-	}
-	item.KisimID = int(kisimID)
-
-	// Quantity
-	var quantity uint16
-	if err := binary.Read(buf, binary.BigEndian, &quantity); err != nil {
-		return fmt.Errorf("failed to read quantity: %v", err)
-	}
-	item.Quantity = int(quantity)
-
-	// Unit price
-	var unitPriceKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &unitPriceKurus); err != nil {
-		return fmt.Errorf("failed to read unit price: %v", err)
-	}
-	item.UnitPrice = float64(unitPriceKurus) / 100.0
-
-	// Total price
-	var totalPriceKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &totalPriceKurus); err != nil {
-		return fmt.Errorf("failed to read total price: %v", err)
-	}
-	item.TotalPrice = float64(totalPriceKurus) / 100.0
-
-	// Tax rate
-	var taxRate uint8
-	if err := binary.Read(buf, binary.BigEndian, &taxRate); err != nil {
-		return fmt.Errorf("failed to read tax rate: %v", err)
-	}
-	item.TaxRate = int(taxRate)
-
-	return nil
-}
-
 func serializeTaxBreakdown(buf *bytes.Buffer, tax models.TaxBreakdown) error {
 	// Tax 10% base amount in kuruş
 	tax10BaseKurus := uint32(tax.Tax10Percent.TaxableAmount * 100)
@@ -450,45 +267,6 @@ func serializeTaxBreakdown(buf *bytes.Buffer, tax models.TaxBreakdown) error {
 	if err := binary.Write(buf, binary.BigEndian, totalTaxKurus); err != nil {
 		return fmt.Errorf("failed to write total tax: %v", err)
 	}
-
-	return nil
-}
-
-func deserializeTaxBreakdown(buf *bytes.Reader, tax *models.TaxBreakdown) error {
-	// Tax 10% base
-	var tax10BaseKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &tax10BaseKurus); err != nil {
-		return fmt.Errorf("failed to read tax 10 base: %v", err)
-	}
-	tax.Tax10Percent.TaxableAmount = float64(tax10BaseKurus) / 100.0
-
-	// Tax 10% amount
-	var tax10AmountKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &tax10AmountKurus); err != nil {
-		return fmt.Errorf("failed to read tax 10 amount: %v", err)
-	}
-	tax.Tax10Percent.TaxAmount = float64(tax10AmountKurus) / 100.0
-
-	// Tax 20% base
-	var tax20BaseKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &tax20BaseKurus); err != nil {
-		return fmt.Errorf("failed to read tax 20 base: %v", err)
-	}
-	tax.Tax20Percent.TaxableAmount = float64(tax20BaseKurus) / 100.0
-
-	// Tax 20% amount
-	var tax20AmountKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &tax20AmountKurus); err != nil {
-		return fmt.Errorf("failed to read tax 20 amount: %v", err)
-	}
-	tax.Tax20Percent.TaxAmount = float64(tax20AmountKurus) / 100.0
-
-	// Total tax
-	var totalTaxKurus uint32
-	if err := binary.Read(buf, binary.BigEndian, &totalTaxKurus); err != nil {
-		return fmt.Errorf("failed to read total tax: %v", err)
-	}
-	tax.TotalTax = float64(totalTaxKurus) / 100.0
 
 	return nil
 }

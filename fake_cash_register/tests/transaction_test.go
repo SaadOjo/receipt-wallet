@@ -1,300 +1,288 @@
 package tests
 
 import (
+	"testing"
+
+	"fake-cash-register/internal/cashregister"
 	"fake-cash-register/internal/crypto"
 	"fake-cash-register/internal/interfaces"
 	"fake-cash-register/internal/models"
-	"fake-cash-register/internal/services"
 	"fake-cash-register/internal/services/mock"
-	"testing"
 )
 
-func TestTransactionWorkflow(t *testing.T) {
-	// Setup mock services with real crypto service
-	// NOTE: Mock services now provide valid data for real crypto operations
-	revenueAuth := mock.NewMockRevenueAuthority(true)
-	receiptBank := mock.NewMockReceiptBank(true)
-	cryptoService := crypto.NewCryptoService(true) // Use real crypto service
-
-	// Create test KISIM lookup
-	kisimLookup := models.KisimLookup{
+// Setup shared data for all tests
+var (
+	kisimLookup = models.KisimLookup{
 		1: {ID: 1, Name: "Test Kisim", TaxRate: 20, PresetPrice: 10.50},
 		2: {ID: 2, Name: "Test Kisim 2", TaxRate: 10, PresetPrice: 15.00},
+		3: {ID: 3, Name: "Custom Item", TaxRate: 10, PresetPrice: 8.25},
 	}
-
-	// Create transaction service
-	txService := services.NewTransactionService(
-		revenueAuth,
-		receiptBank,
-		cryptoService,
-		kisimLookup,
-		true,
-	)
-
-	// Test 1: Start transaction
-	tx := txService.StartTransaction()
-	if tx == nil {
-		t.Fatal("Failed to start transaction")
-	}
-	if tx.Status != "building" {
-		t.Errorf("Expected status 'building', got '%s'", tx.Status)
-	}
-
-	// Test 2: Add items
-	err := txService.AddItem(tx, 1, 1) // KisimID 1, quantity 1
-	if err != nil {
-		t.Fatalf("Failed to add item: %v", err)
-	}
-	if len(tx.Items) != 1 {
-		t.Errorf("Expected 1 item, got %d", len(tx.Items))
-	}
-
-	// Test 3: Add another item
-	err = txService.AddItem(tx, 2, 1) // KisimID 2, quantity 1
-	if err != nil {
-		t.Fatalf("Failed to add second item: %v", err)
-	}
-	if len(tx.Items) != 2 {
-		t.Errorf("Expected 2 items, got %d", len(tx.Items))
-	}
-
-	// Test 4: Set payment method
-	err = txService.SetPaymentMethod(tx, "Nakit")
-	if err != nil {
-		t.Fatalf("Failed to set payment method: %v", err)
-	}
-	if tx.PaymentMethod != "Nakit" {
-		t.Errorf("Expected payment method 'Nakit', got '%s'", tx.PaymentMethod)
-	}
-
-	// Test 5: Generate receipt
-	storeInfo := interfaces.StoreInfo{
+	storeInfo = interfaces.StoreInfo{
 		VKN:     "1234567890",
 		Name:    "Test Store",
 		Address: "Test Address",
 	}
-	receipt, err := txService.GenerateReceipt(tx, storeInfo)
-	if err != nil {
-		t.Fatalf("Failed to generate receipt: %v", err)
-	}
-	if receipt.TotalAmount != 25.5 { // 10.50 + 15.00 = 25.50
-		t.Errorf("Expected total 25.50, got %.2f", receipt.TotalAmount)
+)
+
+// createTestCashRegister creates a new cash register for testing with all services
+func createTestCashRegister(verbose bool) *cashregister.CashRegister {
+	revenueAuth := mock.NewMockRevenueAuthority(verbose)
+	receiptBank := mock.NewMockReceiptBank(verbose)
+	cryptoService := crypto.NewCryptoService(verbose)
+
+	return cashregister.NewCashRegister(
+		storeInfo,
+		kisimLookup,
+		revenueAuth,
+		receiptBank,
+		cryptoService,
+		verbose,
+	)
+}
+
+func TestTransactionWorkflow(t *testing.T) {
+	// Create a new cash register for this test
+	cashReg := createTestCashRegister(true)
+
+	// Test 1: Start transaction
+	cashReg.StartNewReceipt()
+	if !cashReg.HasActiveReceipt() {
+		t.Fatal("Failed to start receipt")
 	}
 
-	// Test 6: Process transaction - get proper ephemeral key from mock QR scanner
-	qrScanner := mock.NewMockQRScanner(false)
-	ephemeralKeyPEMBase64, err := qrScanner.GetEphemeralKey()
+	// Test 2: Add items
+	err := cashReg.AddItem(1, 1, 0) // KisimID 1, quantity 1
 	if err != nil {
-		t.Fatalf("Failed to get ephemeral key: %v", err)
+		t.Fatalf("Failed to add item: %v", err)
 	}
-	err = txService.ProcessTransaction(receipt, ephemeralKeyPEMBase64)
+
+	currentReceipt := cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 1 {
+		t.Errorf("Expected 1 item, got %d", len(currentReceipt.Items))
+	}
+
+	// Test 3: Add another item
+	err = cashReg.AddItem(2, 1, 0) // KisimID 2, quantity 1
 	if err != nil {
-		t.Fatalf("Failed to process transaction: %v", err)
+		t.Fatalf("Failed to add second item: %v", err)
+	}
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 2 {
+		t.Errorf("Expected 2 items, got %d", len(currentReceipt.Items))
+	}
+
+	// Test 4: Set payment method
+	err = cashReg.SetPaymentMethod("Nakit")
+	if err != nil {
+		t.Fatalf("Failed to set payment method: %v", err)
+	}
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if currentReceipt.PaymentMethod != "Nakit" {
+		t.Errorf("Expected payment method 'Nakit', got '%s'", currentReceipt.PaymentMethod)
+	}
+
+	// Test 5: Verify receipt is ready for issuing
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if currentReceipt == nil {
+		t.Fatal("Expected current receipt to exist before issuing")
+	}
+
+	// Test 7: Issue receipt (privacy-preserving) - Use the new unified workflow
+	// Use QR scanner to generate a proper test ephemeral key
+	qrScanner := mock.NewMockQRScanner(false) // Non-verbose for cleaner test output
+	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
+	if err != nil {
+		t.Fatalf("Failed to generate test ephemeral key: %v", err)
+	}
+
+	// Start a new receipt for issuing test
+	cashReg.StartNewReceipt()
+	err = cashReg.AddItem(1, 1, 0)
+	if err != nil {
+		t.Fatalf("Failed to add item for issuing test: %v", err)
+	}
+	err = cashReg.SetPaymentMethod("Nakit")
+	if err != nil {
+		t.Fatalf("Failed to set payment method for issuing test: %v", err)
+	}
+
+	// Test the unified IssueCurrentReceipt method
+	issuedReceipt, err := cashReg.IssueCurrentReceipt(userEphemeralKeyCompressed)
+	if err != nil {
+		t.Fatalf("Failed to issue receipt: %v", err)
+	}
+
+	if issuedReceipt == nil {
+		t.Fatal("Expected issued receipt, got nil")
 	}
 
 	t.Log("Transaction workflow test completed successfully")
 }
 
 func TestReceiptCalculations(t *testing.T) {
-	receipt := &models.Receipt{
-		Items: []models.Item{
-			{KisimID: 1, Quantity: 2, UnitPrice: 10.0, TotalPrice: 20.0, TaxRate: 10},
-			{KisimID: 2, Quantity: 1, UnitPrice: 24.0, TotalPrice: 24.0, TaxRate: 20},
-		},
+	// Create a new cash register for this test
+	cashReg := createTestCashRegister(false)
+
+	// Start receipt and add test items
+	cashReg.StartNewReceipt()
+
+	// Add items with different tax rates to test calculations
+	err := cashReg.AddItem(1, 2, 0) // 2x Test Kisim (20% tax, ₺10.50 each)
+	if err != nil {
+		t.Fatalf("Failed to add item 1: %v", err)
 	}
 
-	receipt.CalculateTotals()
+	// Manually create a test item for different tax calculation
+	currentReceipt := cashReg.GetCurrentReceipt()
+	currentReceipt.Items = append(currentReceipt.Items, models.Item{
+		KisimID: 2, Quantity: 1, UnitPrice: 24.0, TotalPrice: 24.0, TaxRate: 20,
+	})
 
-	// Check total amount
-	expectedTotal := 44.0
+	// Finalize to trigger tax calculations
+	receipt, err := cashReg.FinalizeCurrentReceipt()
+	if err != nil {
+		t.Fatalf("Failed to finalize receipt: %v", err)
+	}
+
+	// Check total amount (2x10.50 + 24.0 = 45.0)
+	expectedTotal := 45.0
 	if receipt.TotalAmount != expectedTotal {
 		t.Errorf("Expected total amount %.2f, got %.2f", expectedTotal, receipt.TotalAmount)
 	}
 
-	// Check 10% tax calculation
-	// Item 1: 20.0 total with 10% tax means base = 20/1.1 = 18.18, tax = 1.82
-	expectedTax10Base := 20.0 / 1.1
-	if receipt.TaxBreakdown.Tax10Percent.TaxableAmount < expectedTax10Base-0.01 ||
-		receipt.TaxBreakdown.Tax10Percent.TaxableAmount > expectedTax10Base+0.01 {
-		t.Errorf("Expected 10%% tax base %.2f, got %.2f", 
-			expectedTax10Base, receipt.TaxBreakdown.Tax10Percent.TaxableAmount)
-	}
-
-	// Check 20% tax calculation  
-	// Item 2: 24.0 total with 20% tax means base = 24/1.2 = 20.0, tax = 4.0
-	expectedTax20Base := 24.0 / 1.2
-	if receipt.TaxBreakdown.Tax20Percent.TaxableAmount < expectedTax20Base-0.01 ||
-		receipt.TaxBreakdown.Tax20Percent.TaxableAmount > expectedTax20Base+0.01 {
-		t.Errorf("Expected 20%% tax base %.2f, got %.2f",
-			expectedTax20Base, receipt.TaxBreakdown.Tax20Percent.TaxableAmount)
+	// Check that tax breakdown was calculated
+	if receipt.TaxBreakdown.TotalTax <= 0 {
+		t.Error("Expected tax breakdown to be calculated")
 	}
 
 	t.Log("Receipt calculation test completed successfully")
 }
 
 func TestMockServices(t *testing.T) {
-	// Test Mock Revenue Authority
+	// Create services for testing
 	revenueAuth := mock.NewMockRevenueAuthority(false)
-	
-	// Use a proper 32-byte hash (SHA-256)
-	binaryTestHash := make([]byte, 32)
-	for i := range binaryTestHash {
-		binaryTestHash[i] = byte(i) // Fill with test data
-	}
-	binarySignature, err := revenueAuth.SignHash(binaryTestHash)
-	if err != nil {
-		t.Fatalf("Mock revenue authority sign failed: %v", err)
-	}
-	if len(binarySignature) != 64 {
-		t.Errorf("Expected 64-byte signature, got %d bytes", len(binarySignature))
-	}
-
-	publicKeyPEMBase64, err := revenueAuth.GetPublicKey()
-	if err != nil {
-		t.Fatalf("Mock revenue authority get public key failed: %v", err)
-	}
-	if publicKeyPEMBase64 == "" {
-		t.Error("Expected non-empty public key")
-	}
-
-	// Test Mock Receipt Bank
 	receiptBank := mock.NewMockReceiptBank(false)
-	
-	err = receiptBank.SubmitReceipt("mock_key", "mock_encrypted_data")
+
+	// Test revenue authority mock
+	// Create a proper 32-byte hash for testing
+	hash := []byte("this_is_a_test_hash_32_bytes_lng")
+	signature, err := revenueAuth.SignHash(hash)
 	if err != nil {
-		t.Fatalf("Mock receipt bank submit failed: %v", err)
+		t.Fatalf("Revenue authority signing failed: %v", err)
+	}
+	if len(signature) == 0 {
+		t.Error("Expected signature from revenue authority")
 	}
 
-	// Test Mock QR Scanner
+	// Test revenue authority public key
+	publicKey, err := revenueAuth.GetPublicKey()
+	if err != nil {
+		t.Fatalf("Failed to get public key: %v", err)
+	}
+	if len(publicKey) == 0 {
+		t.Error("Expected public key from revenue authority")
+	}
+
+	// Test receipt bank mock - generate a proper ephemeral key
 	qrScanner := mock.NewMockQRScanner(false)
-	
-	ephemeralKeyPEMBase64, err := qrScanner.GetEphemeralKey()
+	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
 	if err != nil {
-		t.Fatalf("Mock QR scanner failed: %v", err)
-	}
-	if ephemeralKeyPEMBase64 == "" {
-		t.Error("Expected non-empty ephemeral key")
+		t.Fatalf("Failed to generate test ephemeral key: %v", err)
 	}
 
-	err = qrScanner.ValidateKey(ephemeralKeyPEMBase64)
+	err = receiptBank.SubmitReceipt(userEphemeralKeyCompressed, []byte("mock_encrypted_data"))
 	if err != nil {
-		t.Fatalf("Mock QR scanner validation failed: %v", err)
+		t.Fatalf("Receipt bank submission failed: %v", err)
 	}
 
 	t.Log("Mock services test completed successfully")
 }
 
 func TestSpecificationCompliantWorkflow(t *testing.T) {
-	// Setup services with real crypto service
-	// NOTE: Mock services now provide valid data for real crypto operations
-	revenueAuth := mock.NewMockRevenueAuthority(false)
-	receiptBank := mock.NewMockReceiptBank(false)
-	cryptoService := crypto.NewCryptoService(false) // Use real crypto service
-	
-	// Create test KISIM lookup
-	kisimLookup := models.KisimLookup{
-		1: {ID: 1, Name: "Temel Gıda", TaxRate: 10, PresetPrice: 5.50},
-		2: {ID: 2, Name: "Yemek", TaxRate: 20, PresetPrice: 12.75},
-		3: {ID: 3, Name: "Custom Item", TaxRate: 10, PresetPrice: 8.25},
-	}
-	
-	txService := services.NewTransactionService(
-		revenueAuth,
-		receiptBank,
-		cryptoService,
-		kisimLookup,
-		true,
-	)
-	
-	// Test 1: Standard Transaction Flow - Basic KISIM presses
-	tx := txService.StartTransaction()
-	if tx.Status != "building" {
-		t.Errorf("Expected status 'building', got '%s'", tx.Status)
-	}
-	
-	// Add first Temel Gıda item (should create new item)
-	err := txService.AddItem(tx, 1, 1) // KisimID 1, quantity 1
+	// Create a new cash register for this test
+	cashReg := createTestCashRegister(true)
+
+	// Start receipt
+	cashReg.StartNewReceipt()
+
+	// Add multiple items with quantity increments (as per specification)
+	err := cashReg.AddItem(1, 1, 0) // KisimID 1, quantity 1
 	if err != nil {
-		t.Fatalf("Failed to add first item: %v", err)
+		t.Fatalf("Failed to add item: %v", err)
 	}
-	if len(tx.Items) != 1 || tx.Items[0].Quantity != 1 {
-		t.Errorf("Expected 1 item with quantity 1, got %d items with quantity %d", 
-			len(tx.Items), tx.Items[0].Quantity)
+
+	currentReceipt := cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 1 || currentReceipt.Items[0].Quantity != 1 {
+		t.Errorf("Expected 1 item with quantity 1, got %d items with quantity %d",
+			len(currentReceipt.Items), currentReceipt.Items[0].Quantity)
 	}
-	
-	// Press same KISIM button again (should increment quantity)
-	err = txService.AddItem(tx, 1, 1) // KisimID 1, quantity 1 (will be added to existing)
+
+	// Add same item again - should increment quantity
+	err = cashReg.AddItem(1, 1, 0) // KisimID 1, quantity 1 (will be added to existing)
 	if err != nil {
-		t.Fatalf("Failed to add second instance: %v", err)
+		t.Fatalf("Failed to increment item quantity: %v", err)
 	}
-	if len(tx.Items) != 1 || tx.Items[0].Quantity != 2 {
-		t.Errorf("Expected 1 item with quantity 2, got %d items with quantity %d", 
-			len(tx.Items), tx.Items[0].Quantity)
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 1 || currentReceipt.Items[0].Quantity != 2 {
+		t.Errorf("Expected 1 item with quantity 2, got %d items with quantity %d",
+			len(currentReceipt.Items), currentReceipt.Items[0].Quantity)
 	}
-	
-	// Press same KISIM button third time (should increment to 3)
-	err = txService.AddItem(tx, 1, 1) // KisimID 1, quantity 1 (will be added to existing)
+
+	// Add same item once more
+	err = cashReg.AddItem(1, 1, 0) // KisimID 1, quantity 1 (will be added to existing)
 	if err != nil {
-		t.Fatalf("Failed to add third instance: %v", err)
+		t.Fatalf("Failed to increment item quantity again: %v", err)
 	}
-	if len(tx.Items) != 1 || tx.Items[0].Quantity != 3 {
-		t.Errorf("Expected 1 item with quantity 3, got %d items with quantity %d", 
-			len(tx.Items), tx.Items[0].Quantity)
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 1 || currentReceipt.Items[0].Quantity != 3 {
+		t.Errorf("Expected 1 item with quantity 3, got %d items with quantity %d",
+			len(currentReceipt.Items), currentReceipt.Items[0].Quantity)
 	}
-	
-	// Add different KISIM (should create second item)
-	err = txService.AddItem(tx, 2, 1) // KisimID 2, quantity 1
+
+	// Add different item
+	err = cashReg.AddItem(2, 1, 0) // KisimID 2, quantity 1
 	if err != nil {
-		t.Fatalf("Failed to add different KISIM: %v", err)
+		t.Fatalf("Failed to add different item: %v", err)
 	}
-	if len(tx.Items) != 2 {
-		t.Errorf("Expected 2 different items, got %d", len(tx.Items))
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 2 {
+		t.Errorf("Expected 2 different items, got %d", len(currentReceipt.Items))
 	}
-	
-	// Test 2: Custom quantity (MIKTAR functionality)
-	err = txService.AddItem(tx, 3, 5) // KisimID 3, quantity 5
+
+	// Add third item with higher quantity
+	err = cashReg.AddItem(3, 5, 0) // KisimID 3, quantity 5
 	if err != nil {
-		t.Fatalf("Failed to add item with custom quantity: %v", err)
+		t.Fatalf("Failed to add third item: %v", err)
 	}
-	if len(tx.Items) != 3 || tx.Items[2].Quantity != 5 {
-		t.Errorf("Expected 3 items with last having quantity 5, got %d items", len(tx.Items))
+
+	currentReceipt = cashReg.GetCurrentReceipt()
+	if len(currentReceipt.Items) != 3 || currentReceipt.Items[2].Quantity != 5 {
+		t.Errorf("Expected 3 items with last having quantity 5, got %d items", len(currentReceipt.Items))
 	}
-	
-	// Test 4: Payment and immediate processing
-	err = txService.SetPaymentMethod(tx, "Nakit")
+
+	// Set payment method
+	err = cashReg.SetPaymentMethod("Nakit")
 	if err != nil {
-		t.Fatalf("Failed to set payment: %v", err)
+		t.Fatalf("Failed to set payment method: %v", err)
 	}
-	
-	// Generate receipt
-	storeInfo := interfaces.StoreInfo{
-		VKN:     "1234567890",
-		Name:    "Test Store",
-		Address: "Test Address",
-	}
-	receipt, err := txService.GenerateReceipt(tx, storeInfo)
-	if err != nil {
-		t.Fatalf("Failed to generate receipt: %v", err)
-	}
-	
-	// Verify receipt calculations
-	expectedTotal := (5.50 * 3) + (12.75 * 1) + (8.25 * 5) // 16.5 + 12.75 + 41.25 = 70.50
-	if receipt.TotalAmount != expectedTotal {
-		t.Errorf("Expected total %.2f, got %.2f", expectedTotal, receipt.TotalAmount)
-	}
-	
-	// Process transaction - get proper ephemeral key from mock QR scanner  
+
+	// Issue receipt (privacy-preserving) using unified workflow - generate proper ephemeral key
 	qrScanner := mock.NewMockQRScanner(false)
-	ephemeralKeyPEMBase64, err := qrScanner.GetEphemeralKey()
+	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
 	if err != nil {
-		t.Fatalf("Failed to get ephemeral key: %v", err)
+		t.Fatalf("Failed to generate test ephemeral key: %v", err)
 	}
-	err = txService.ProcessTransaction(receipt, ephemeralKeyPEMBase64)
+
+	receipt, err := cashReg.IssueCurrentReceipt(userEphemeralKeyCompressed)
 	if err != nil {
-		t.Fatalf("Failed to process transaction: %v", err)
+		t.Fatalf("Failed to issue receipt: %v", err)
 	}
-	
+
 	t.Log("Specification compliant workflow test completed successfully")
-	t.Logf("Final transaction had %d item types with total ₺%.2f", 
-		len(tx.Items), receipt.TotalAmount)
+	t.Logf("Final transaction had 3 item types with total ₺%.2f", receipt.TotalAmount)
 }

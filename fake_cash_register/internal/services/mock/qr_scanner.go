@@ -4,29 +4,29 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/pem"
+	"fmt"
 	"log"
 	"time"
+
+	"fake-cash-register/internal/binary"
 )
 
 type MockQRScanner struct {
-	verbose bool
-	testKeys []string
+	verbose  bool
+	testKeys [][]byte
 	keyIndex int
 }
 
 func NewMockQRScanner(verbose bool) *MockQRScanner {
-	// Generate valid ECDSA public keys for testing
+	// Generate valid compressed ECDSA public keys for testing
 	// NOTE FOR CODE REVIEW: These are MOCK test keys generated at runtime
 	// They are NOT production keys and are only used for testing/standalone mode
-	testKeys := []string{
-		generateValidECDSATestKey("MOCK_TEST_KEY_1"),
-		generateValidECDSATestKey("MOCK_TEST_KEY_2"), 
-		generateValidECDSATestKey("MOCK_TEST_KEY_3"),
+	testKeys := [][]byte{
+		generateCompressedTestKey("MOCK_TEST_KEY_1"),
+		generateCompressedTestKey("MOCK_TEST_KEY_2"),
+		generateCompressedTestKey("MOCK_TEST_KEY_3"),
 	}
-	
+
 	return &MockQRScanner{
 		verbose:  verbose,
 		testKeys: testKeys,
@@ -34,85 +34,70 @@ func NewMockQRScanner(verbose bool) *MockQRScanner {
 	}
 }
 
-func (m *MockQRScanner) GetEphemeralKey() (string, error) {
+func (m *MockQRScanner) GetEphemeralKey() ([]byte, error) {
 	if m.verbose {
 		log.Printf("[MOCK] QR Scanner: Simulating QR code scan...")
 	}
-	
+
 	// Simulate scanning delay
 	time.Sleep(300 * time.Millisecond)
-	
+
 	// Cycle through test keys
 	key := m.testKeys[m.keyIndex]
 	m.keyIndex = (m.keyIndex + 1) % len(m.testKeys)
-	
+
 	if m.verbose {
-		log.Printf("[MOCK] QR Scanner: Scanned MOCK test key %s...", key[:16])
+		keyBase64 := binary.ToBase64(key)
+		log.Printf("[MOCK] QR Scanner: Scanned MOCK test key %s... (%d bytes)", keyBase64[:16], len(key))
 	}
-	
+
 	return key, nil
 }
 
-func (m *MockQRScanner) ValidateKey(key string) error {
+func (m *MockQRScanner) ValidateKey(key []byte) error {
 	if m.verbose {
-		log.Printf("[MOCK] QR Scanner: Validating MOCK test key %s...", key[:16])
+		keyBase64 := binary.ToBase64(key)
+		log.Printf("[MOCK] QR Scanner: Validating MOCK test key %s... (%d bytes)", keyBase64[:16], len(key))
 	}
-	
-	// Basic validation - check if it's base64 encoded ECDSA key
-	_, err := base64.StdEncoding.DecodeString(key)
+
+	// Basic validation - check if it's 33-byte compressed key
+	if len(key) != 33 {
+		return fmt.Errorf("invalid key size: expected 33 bytes, got %d", len(key))
+	}
+
+	if key[0] != 0x02 && key[0] != 0x03 {
+		return fmt.Errorf("invalid compressed key format: expected 0x02 or 0x03 prefix, got 0x%02x", key[0])
+	}
+
+	// Try to parse to ensure it's valid
+	_, err := binary.RawCompressedToPublicKey(key)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid compressed key: %v", err)
 	}
-	
+
 	if m.verbose {
 		log.Printf("[MOCK] QR Scanner: MOCK test key validation successful")
 	}
-	
+
 	return nil
 }
 
-// generateValidECDSATestKey creates a valid ECDSA public key for testing
+// generateCompressedTestKey creates a valid 33-byte compressed ECDSA public key for testing
 // NOTE FOR CODE REVIEW: This generates MOCK test keys only - NOT for production use
-func generateValidECDSATestKey(testKeyLabel string) string {
+func generateCompressedTestKey(testKeyLabel string) []byte {
 	// Generate a real ECDSA key pair for testing
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		// Fallback to deterministic test key if generation fails
-		log.Printf("[MOCK WARNING] Failed to generate test ECDSA key, using fallback: %v", err)
-		return generateFallbackTestKey(testKeyLabel)
+		// Explicit failure - better for debugging than fallback
+		panic(fmt.Sprintf("[MOCK] Failed to generate test ECDSA key for %s: %v", testKeyLabel, err))
 	}
-	
-	// Extract public key
-	publicKey := &privateKey.PublicKey
-	
-	// Marshal to PKIX format
-	publicKeyBytes, err := x509.MarshalPKIXPublicKey(publicKey)
-	if err != nil {
-		log.Printf("[MOCK WARNING] Failed to marshal test public key, using fallback: %v", err)
-		return generateFallbackTestKey(testKeyLabel)
-	}
-	
-	// Create PEM block with clear test labeling
-	pemBlock := &pem.Block{
-		Type:  "PUBLIC KEY",
-		Bytes: publicKeyBytes,
-		Headers: map[string]string{
-			"Test-Key-Label": testKeyLabel,
-			"Generated-At":   time.Now().Format(time.RFC3339),
-			"Purpose":        "MOCK-TESTING-ONLY",
-		},
-	}
-	
-	// Encode to PEM
-	pemBytes := pem.EncodeToMemory(pemBlock)
-	
-	// Base64 encode for transmission (as expected by crypto service)
-	return base64.StdEncoding.EncodeToString(pemBytes)
-}
 
-// generateFallbackTestKey creates a simple fallback test key if ECDSA generation fails
-// NOTE FOR CODE REVIEW: This is a MOCK fallback key for testing only
-func generateFallbackTestKey(testKeyLabel string) string {
-	mockKeyData := "MOCK_FALLBACK_TEST_KEY_" + testKeyLabel + "_" + time.Now().Format("20060102150405")
-	return base64.StdEncoding.EncodeToString([]byte(mockKeyData))
+	// Extract public key and compress
+	compressed, err := binary.PublicKeyToRawCompressed(&privateKey.PublicKey)
+	if err != nil {
+		// Explicit failure - better for debugging than fallback
+		panic(fmt.Sprintf("[MOCK] Failed to compress test public key for %s: %v", testKeyLabel, err))
+	}
+
+	return compressed
 }

@@ -93,29 +93,21 @@ class CashRegister {
         
         // Handle current input based on mode
         if (this.currentInput) {
-            // Convert comma to period for parseFloat
             const inputValue = parseFloat(this.currentInput.replace(',', '.'));
             
             if (this.inputMode === 'price') {
-                // Explicitly in price mode
+                // Explicitly in price mode (after MIKTAR)
                 finalPrice = inputValue > 0 ? inputValue : presetPrice;
             } else if (this.inputMode === 'ambiguous') {
-                // Ambiguous mode: treat as price, quantity defaults to 1
+                // Ambiguous mode: treat as price by default
                 finalPrice = inputValue > 0 ? inputValue : presetPrice;
-                finalQuantity = 1;
+                finalQuantity = 1; // Reset quantity to 1 for custom price
             }
         }
         
-        // Use the backend service to add the item
-        if (finalQuantity === 1) {
-            // Standard add item (repeated presses will increment in backend)
-            await this.addNewItem(kisimId, kisimName, finalPrice, taxRate);
-            this.log(`Ürün eklendi: ${kisimName} - ₺${finalPrice.toFixed(2)}`);
-        } else {
-            // Add item with custom quantity
-            await this.addItemWithCustomQuantity(kisimId, kisimName, finalPrice, taxRate, finalQuantity);
-            this.log(`Ürün eklendi: ${kisimName} - ₺${finalPrice.toFixed(2)} x${finalQuantity}`);
-        }
+        // Add the item with custom price and quantity
+        await this.addNewItem(kisimId, finalQuantity, finalPrice);
+        this.log(`Ürün eklendi: ${kisimName} - ₺${finalPrice.toFixed(2)} x${finalQuantity}`);
         
         // Reset state after adding item
         this.resetInputState();
@@ -188,80 +180,57 @@ class CashRegister {
     
     async startTransaction() {
         try {
-            await fetch('/api/transaction/start', { method: 'POST' });
-            this.log('Yeni işlem başlatıldı');
+            const response = await fetch('/api/transaction/start', { method: 'POST' });
+            if (response.ok) {
+                this.log('Yeni işlem başlatıldı');
+            } else {
+                const errorData = await response.json();
+                this.showError('İşlem başlatılamadı: ' + (errorData.error || 'Bilinmeyen hata'));
+            }
         } catch (error) {
             this.showError('İşlem başlatılamadı: ' + error.message);
         }
     }
     
-    async addNewItem(kisimId, kisimName, unitPrice, taxRate) {
+    async addNewItem(kisimId, quantity = 1, unitPrice = null) {
         try {
+            const body = {
+                kisim_id: kisimId,
+                quantity: quantity
+            };
+            
+            // Add custom unit price if provided
+            if (unitPrice !== null && unitPrice > 0) {
+                body.unit_price = unitPrice;
+            }
+            
             const response = await fetch('/api/transaction/add-item', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    kisim_id: kisimId,
-                    kisim_name: kisimName,
-                    unit_price: unitPrice,
-                    tax_rate: taxRate
-                })
+                body: JSON.stringify(body)
             });
             
-            const data = await response.json();
-            if (data.success) {
+            if (response.ok) {
+                const data = await response.json();
                 this.currentTransaction.items = data.items;
                 this.updateTransactionDisplay();
             } else {
-                this.showError(data.message);
+                const errorData = await response.json();
+                this.showError(errorData.error || 'Ürün eklenemedi');
             }
         } catch (error) {
             this.showError('Ürün eklenemedi: ' + error.message);
         }
     }
     
-    async addItemWithCustomQuantity(kisimId, kisimName, unitPrice, taxRate, quantity) {
-        try {
-            const response = await fetch('/api/transaction/add-item-with-quantity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    kisim_id: kisimId,
-                    kisim_name: kisimName,
-                    unit_price: unitPrice,
-                    tax_rate: taxRate,
-                    quantity: quantity
-                })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                this.currentTransaction.items = data.items;
-                this.updateTransactionDisplay();
-            } else {
-                this.showError(data.message);
-            }
-        } catch (error) {
-            this.showError('Miktar ile ürün eklenemedi: ' + error.message);
-        }
-    }
+    // Remove this method since we now use addNewItem for everything
+    // async addItemWithCustomQuantity - DEPRECATED
     
     async setItemQuantity(itemIndex, quantity) {
         try {
-            const response = await fetch('/api/transaction/set-quantity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    item_index: itemIndex,
-                    quantity: quantity
-                })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                this.currentTransaction.items = data.items;
-                this.updateTransactionDisplay();
-            }
+            // This endpoint doesn't exist in our API, so we'll skip this functionality
+            // The CashRegister backend handles quantity through repeated add-item calls
+            this.log('Miktar ayarlama - Backend tarafından otomatik olarak yönetiliyor');
         } catch (error) {
             this.log('Miktar ayarlanamadı: ' + error.message);
         }
@@ -284,9 +253,9 @@ class CashRegister {
                 body: JSON.stringify({ payment_method: method })
             });
             
-            const paymentData = await paymentResponse.json();
-            if (!paymentData.success) {
-                this.showError(paymentData.message);
+            if (!paymentResponse.ok) {
+                const errorData = await paymentResponse.json();
+                this.showError(errorData.error || 'Ödeme yöntemi ayarlanamadı');
                 return;
             }
             
@@ -317,13 +286,14 @@ class CashRegister {
                 body: JSON.stringify({ ephemeral_key: ephemeralKey })
             });
             
-            const data = await response.json();
-            if (data.success) {
+            if (response.ok) {
+                const receipt = await response.json();
                 this.showSuccess('İşlem başarıyla tamamlandı!');
-                this.log('İşlem tamamlandı');
+                this.log(`İşlem tamamlandı - Fiş ID: ${receipt.receipt_id}`);
                 this.resetTransaction();
             } else {
-                this.showError('İşlem başarısız: ' + data.message);
+                const errorData = await response.json();
+                this.showError('İşlem başarısız: ' + (errorData.error || 'Bilinmeyen hata'));
                 this.resetTransaction(); // Cancel transaction on error
             }
         } catch (error) {
@@ -334,9 +304,14 @@ class CashRegister {
     
     async cancelTransaction() {
         try {
-            await fetch('/api/transaction/cancel', { method: 'POST' });
-            this.resetTransaction();
-            this.log('İşlem iptal edildi');
+            const response = await fetch('/api/transaction/cancel', { method: 'POST' });
+            if (response.ok || response.status === 204) {
+                this.resetTransaction();
+                this.log('İşlem iptal edildi');
+            } else {
+                const errorData = await response.json();
+                this.showError('İptal edilemedi: ' + (errorData.error || 'Bilinmeyen hata'));
+            }
         } catch (error) {
             this.showError('İptal edilemedi: ' + error.message);
         }

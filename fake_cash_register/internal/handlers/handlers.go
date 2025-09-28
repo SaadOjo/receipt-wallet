@@ -1,36 +1,30 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"log"
 	"net/http"
 
+	"fake-cash-register/internal/api"
+	"fake-cash-register/internal/cashregister"
 	"fake-cash-register/internal/config"
-	"fake-cash-register/internal/interfaces"
 	"fake-cash-register/internal/models"
 
 	"github.com/gin-gonic/gin"
 )
 
 type CashRegisterHandler struct {
-	config      *config.Config
-	services    *interfaces.ServiceContainer
-	currentTx   *models.Transaction
-	storeInfo   interfaces.StoreInfo
-	verbose     bool
+	cashRegister *cashregister.CashRegister
+	config       *config.Config
 }
 
-func NewCashRegisterHandler(cfg *config.Config, services *interfaces.ServiceContainer) *CashRegisterHandler {
-	storeInfo := interfaces.StoreInfo{
-		VKN:     cfg.Store.VKN,
-		Name:    cfg.Store.Name,
-		Address: cfg.Store.Address,
-	}
-
+func NewCashRegisterHandler(
+	cashReg *cashregister.CashRegister,
+	cfg *config.Config,
+) *CashRegisterHandler {
 	return &CashRegisterHandler{
-		config:    cfg,
-		services:  services,
-		storeInfo: storeInfo,
-		verbose:   cfg.Server.Verbose,
+		cashRegister: cashReg,
+		config:       cfg,
 	}
 }
 
@@ -64,91 +58,47 @@ func (h *CashRegisterHandler) GetKisim(c *gin.Context) {
 
 // POST /api/transaction/start - Start new transaction
 func (h *CashRegisterHandler) StartTransaction(c *gin.Context) {
-	if h.verbose {
+	if h.config.Server.Verbose {
 		log.Printf("[HANDLER] Starting new transaction")
 	}
 
-	h.currentTx = h.services.Transaction.StartTransaction()
-	
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Transaction started",
-		"transaction_id": h.currentTx.Status,
-	})
+	h.cashRegister.StartNewReceipt()
+
+	c.Status(http.StatusCreated) // 201 - Receipt created
 }
 
 // POST /api/transaction/add-item - Add item to current transaction
 func (h *CashRegisterHandler) AddItem(c *gin.Context) {
 	var req struct {
-		KisimID  int `json:"kisim_id" binding:"required"`
-		Quantity int `json:"quantity" binding:"required"`
+		KisimID   int     `json:"kisim_id" binding:"required"`
+		Quantity  int     `json:"quantity" binding:"required"`
+		UnitPrice float64 `json:"unit_price,omitempty"` // Optional custom price
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request format",
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "Invalid request format",
+			Code:  api.ErrorCodeInvalidRequest,
 		})
 		return
 	}
 
-	if h.currentTx == nil {
-		h.currentTx = h.services.Transaction.StartTransaction()
+	if !h.cashRegister.HasActiveReceipt() {
+		h.cashRegister.StartNewReceipt()
 	}
 
-	err := h.services.Transaction.AddItem(h.currentTx, req.KisimID, req.Quantity)
+	err := h.cashRegister.AddItem(req.KisimID, req.Quantity, req.UnitPrice)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
+		c.JSON(http.StatusInternalServerError, api.APIError{
+			Error: err.Error(),
+			Code:  api.ErrorCodeInternalError,
 		})
 		return
 	}
 
+	// Return current items after adding
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Item added",
-		"items":   h.currentTx.Items,
-	})
-}
-
-
-// POST /api/transaction/update-item-quantity - Update quantity for item
-func (h *CashRegisterHandler) UpdateItemQuantity(c *gin.Context) {
-	var req struct {
-		KisimID  int `json:"kisim_id" binding:"required"`
-		Quantity int `json:"quantity" binding:"required"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request format",
-		})
-		return
-	}
-
-	if h.currentTx == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "No active transaction",
-		})
-		return
-	}
-
-	err := h.services.Transaction.UpdateItemQuantity(h.currentTx, req.KisimID, req.Quantity)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Quantity updated",
-		"items":   h.currentTx.Items,
+		"items": h.cashRegister.GetCurrentReceipt().Items,
 	})
 }
 
@@ -159,60 +109,32 @@ func (h *CashRegisterHandler) SetPaymentMethod(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request format",
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "Invalid request format",
+			Code:  api.ErrorCodeInvalidRequest,
 		})
 		return
 	}
 
-	if h.currentTx == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "No active transaction",
+	if !h.cashRegister.HasActiveReceipt() {
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "No active transaction",
+			Code:  api.ErrorCodeNoActiveReceipt,
 		})
 		return
 	}
 
-	err := h.services.Transaction.SetPaymentMethod(h.currentTx, req.PaymentMethod)
+	err := h.cashRegister.SetPaymentMethod(req.PaymentMethod)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": err.Error(),
+		c.JSON(http.StatusInternalServerError, api.APIError{
+			Error: err.Error(),
+			Code:  api.ErrorCodeInternalError,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Payment method set",
 		"payment_method": req.PaymentMethod,
-	})
-}
-
-// POST /api/transaction/generate-receipt - Generate receipt preview
-func (h *CashRegisterHandler) GenerateReceipt(c *gin.Context) {
-	if h.currentTx == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "No active transaction",
-		})
-		return
-	}
-
-	receipt, err := h.services.Transaction.GenerateReceipt(h.currentTx, h.storeInfo)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, models.TransactionResponse{
-		Success: true,
-		Message: "Receipt generated",
-		Receipt: receipt,
 	})
 }
 
@@ -223,115 +145,103 @@ func (h *CashRegisterHandler) ProcessTransaction(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Invalid request format",
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "Invalid request format",
+			Code:  api.ErrorCodeInvalidRequest,
 		})
 		return
 	}
 
-	if h.currentTx == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "No active transaction",
+	if !h.cashRegister.HasActiveReceipt() {
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "No active transaction",
+			Code:  api.ErrorCodeNoActiveReceipt,
 		})
 		return
 	}
 
-	// Generate receipt
-	receipt, err := h.services.Transaction.GenerateReceipt(h.currentTx, h.storeInfo)
+	// Parse ephemeral key from base64
+	ephemeralKeyCompressed, err := base64.StdEncoding.DecodeString(req.EphemeralKey)
 	if err != nil {
 		h.cancelTransaction()
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "Failed to generate receipt: " + err.Error(),
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "Invalid ephemeral key format: " + err.Error(),
+			Code:  api.ErrorCodeInvalidKey,
 		})
 		return
 	}
 
-	// Process transaction
-	err = h.services.Transaction.ProcessTransaction(receipt, req.EphemeralKey)
+	// Issue receipt (finalize + issue in one atomic operation)
+	receipt, err := h.cashRegister.IssueCurrentReceipt(ephemeralKeyCompressed)
 	if err != nil {
 		h.cancelTransaction()
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Transaction processing failed: " + err.Error(),
+		c.JSON(http.StatusInternalServerError, api.APIError{
+			Error: "Receipt issuing failed: " + err.Error(),
+			Code:  api.ErrorCodeInternalError,
 		})
 		return
 	}
 
-	// Clear current transaction
-	h.currentTx = nil
-
-	c.JSON(http.StatusOK, models.TransactionResponse{
-		Success: true,
-		Message: "Transaction processed successfully",
-		Receipt: receipt,
-	})
+	// Return receipt directly with HTTP 200
+	c.JSON(http.StatusOK, receipt)
 }
 
 // POST /api/transaction/cancel - Cancel current transaction
 func (h *CashRegisterHandler) CancelTransaction(c *gin.Context) {
 	h.cancelTransaction()
-	
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Transaction cancelled",
-	})
+
+	c.Status(http.StatusNoContent) // 204 - No content, operation successful
 }
 
 // GET /api/transaction/current - Get current transaction state
 func (h *CashRegisterHandler) GetCurrentTransaction(c *gin.Context) {
-	if h.currentTx == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"transaction": nil,
+	if !h.cashRegister.HasActiveReceipt() {
+		c.JSON(http.StatusNotFound, api.APIError{
+			Error: "No active transaction",
+			Code:  api.ErrorCodeNoActiveReceipt,
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"transaction": h.currentTx,
-	})
+	// Return receipt directly
+	c.JSON(http.StatusOK, h.cashRegister.GetCurrentReceipt())
 }
 
 // POST /webhook - Receipt bank webhook endpoint
 func (h *CashRegisterHandler) WebhookHandler(c *gin.Context) {
-	var payload interfaces.WebhookPayload
-	
+	var payload api.WebhookPayload
+
 	if err := c.ShouldBindJSON(&payload); err != nil {
-		if h.verbose {
+		if h.config.Server.Verbose {
 			log.Printf("[WEBHOOK] Invalid payload: %v", err)
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload"})
+		c.JSON(http.StatusBadRequest, api.APIError{
+			Error: "Invalid payload",
+			Code:  api.ErrorCodeInvalidRequest,
+		})
 		return
 	}
 
-	if h.verbose {
-		log.Printf("[WEBHOOK] Received confirmation for receipt %s: %s", 
+	if h.config.Server.Verbose {
+		log.Printf("[WEBHOOK] Received confirmation for receipt %s: %s",
 			payload.ReceiptID, payload.Status)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "Webhook processed",
-	})
+	c.Status(http.StatusOK) // 200 - Webhook processed successfully
 }
 
 // GET /health - Health check
 func (h *CashRegisterHandler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"status": "healthy",
-		"service": "fake-cash-register",
+		"status":          "healthy",
+		"service":         "fake-cash-register",
 		"standalone_mode": h.config.StandaloneMode,
 	})
 }
 
 // Helper methods
 func (h *CashRegisterHandler) cancelTransaction() {
-	if h.verbose && h.currentTx != nil {
-		log.Printf("[HANDLER] Transaction cancelled")
-	}
-	h.currentTx = nil
+	h.cashRegister.CancelCurrentReceipt()
 }
 
 // WebhookHandler implementation for services

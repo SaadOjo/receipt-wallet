@@ -1,41 +1,35 @@
 package interfaces
 
-import "fake-cash-register/internal/models"
-
 // RevenueAuthorityService handles receipt hash signing with binary data
 type RevenueAuthorityService interface {
-	SignHash(hash []byte) ([]byte, error) 
-	GetPublicKey() (string, error)
+	SignHash(hash []byte) ([]byte, error)
+	GetPublicKey() ([]byte, error)
 }
 
-// ReceiptBankService handles encrypted receipt submission
+// ReceiptBankService handles encrypted receipt submission with privacy-preserving indexing
 type ReceiptBankService interface {
-	SubmitReceipt(ephemeralKey, encryptedData string) error
-	SetWebhookHandler(handler WebhookHandler) //Question to self: Should not the SubmitReceipt return the handler. 
+	SubmitReceipt(userEphemeralKeyCompressed []byte, encryptedData []byte) error
+	SetWebhookHandler(handler WebhookHandler)
 }
 
-// QRScannerService handles ephemeral key input
+// QRScannerService handles ephemeral key input (raw compressed 33-byte keys)
+// Key validation is handled by CryptoService - QRScanner just extracts keys
 type QRScannerService interface {
-	GetEphemeralKey() (string, error)
-	ValidateKey(key string) error
+	GetEphemeralKey() ([]byte, error)
 }
 
-// CryptoService handles cryptographic operations with binary data
+// CryptoService handles cryptographic operations with binary data (privacy-preserving)
+// Key validation is handled internally by the encryption method
 type CryptoService interface {
 	GenerateReceiptHash(binaryReceipt []byte) []byte
-	EncryptWithEphemeralKey(data []byte, ephemeralKeyPEM string) ([]byte, error)
-	ValidateEphemeralKey(keyPEM string) error
+	EncryptWithUserEphemeralKey(binaryData []byte, userEphemeralKeyCompressed []byte) ([]byte, error)
 }
 
-// TransactionService handles transaction workflow
-type TransactionService interface {
-	StartTransaction() *models.Transaction
-	AddItem(tx *models.Transaction, kisimID int, quantity int) error
-	UpdateItemQuantity(tx *models.Transaction, kisimID int, quantity int) error
-	SetPaymentMethod(tx *models.Transaction, method string) error
-	GenerateReceipt(tx *models.Transaction, storeInfo StoreInfo) (*models.Receipt, error)
-	ProcessTransaction(receipt *models.Receipt, ephemeralKey string) error
-}
+// NOTE: ReceiptGenerationService has been replaced by the CashRegister class
+// which provides better encapsulation and state management.
+
+// NOTE: ReceiptIssueService has been eliminated - receipt issuing is now handled
+// directly by CashRegister.IssueCurrentReceipt() for better encapsulation.
 
 // WebhookHandler handles receipt bank confirmations
 type WebhookHandler interface {
@@ -49,48 +43,5 @@ type StoreInfo struct {
 	Address string
 }
 
-// ServiceContainer holds all service implementations
-type ServiceContainer struct {
-	RevenueAuthority RevenueAuthorityService
-	ReceiptBank     ReceiptBankService
-	QRScanner       QRScannerService
-	Crypto          CryptoService
-	Transaction     TransactionService
-}
-
-// Revenue Authority API models
-type SignRequest struct {
-	Hash string `json:"hash"`
-}
-
-type SignResponse struct {
-	Signature string `json:"signature"`
-}
-
-type PublicKeyResponse struct {
-	PublicKey string `json:"public_key"`
-}
-
-type ErrorResponse struct {
-	Error string `json:"error"`
-}
-
-// Receipt Bank API models
-type ReceiptSubmission struct {
-	EphemeralKey  string `json:"ephemeral_key"`
-	EncryptedData string `json:"encrypted_data"`
-	ReceiptID     string `json:"receipt_id"`
-}
-
-type BankResponse struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	ReceiptID string `json:"receipt_id,omitempty"`
-}
-
-// Webhook payload
-type WebhookPayload struct {
-	ReceiptID string `json:"receipt_id"`
-	Status    string `json:"status"` // "downloaded", "expired", "error"
-	Timestamp string `json:"timestamp"`
-}
+// NOTE: ServiceContainer has been eliminated - services are now injected directly
+// into CashRegister for better encapsulation and cleaner architecture.

@@ -6,25 +6,26 @@ import (
 )
 
 type Receipt struct {
-	ZReportNumber  string       `json:"z_report_number"`
-	TransactionID  string       `json:"transaction_id"`
-	Timestamp      time.Time    `json:"timestamp"`
-	StoreVKN       string       `json:"store_vkn"`
-	StoreName      string       `json:"store_name"`
-	StoreAddress   string       `json:"store_address"`
-	Items          []Item       `json:"items"`
-	TaxBreakdown   TaxBreakdown `json:"tax_breakdown"`
-	TotalAmount    float64      `json:"total_amount"`
-	PaymentMethod  string       `json:"payment_method"`
-	ReceiptSerial  string       `json:"receipt_serial"`
+	ZReportNumber string       `json:"z_report_number"`
+	TransactionID string       `json:"transaction_id"`
+	Timestamp     time.Time    `json:"timestamp"`
+	StoreVKN      string       `json:"store_vkn"`
+	StoreName     string       `json:"store_name"`
+	StoreAddress  string       `json:"store_address"`
+	Items         []Item       `json:"items"`
+	TaxBreakdown  TaxBreakdown `json:"tax_breakdown"`
+	TotalAmount   float64      `json:"total_amount"`
+	PaymentMethod string       `json:"payment_method"`
+	ReceiptSerial string       `json:"receipt_serial"`
 }
 
 type Item struct {
-	KisimID     int     `json:"kisim_id"`
-	Quantity    int     `json:"quantity"`
-	UnitPrice   float64 `json:"unit_price"`
-	TotalPrice  float64 `json:"total_price"`
-	TaxRate     int     `json:"tax_rate"`
+	KisimID    int     `json:"kisim_id"`
+	KisimName  string  `json:"kisim_name"`
+	Quantity   int     `json:"quantity"`
+	UnitPrice  float64 `json:"unit_price"`
+	TotalPrice float64 `json:"total_price"`
+	TaxRate    int     `json:"tax_rate"`
 }
 
 type TaxBreakdown struct {
@@ -38,26 +39,8 @@ type TaxDetail struct {
 	TaxAmount     float64 `json:"tax_amount"`
 }
 
-// Transaction represents the current transaction state
-type Transaction struct {
-	Items         []TransactionItem `json:"items"`
-	PaymentMethod string           `json:"payment_method"`
-	Status        string           `json:"status"` // "building", "payment", "qr_scan", "processing", "complete"
-}
-
-type TransactionItem struct {
-	KisimID     int     `json:"kisim_id"`
-	UnitPrice   float64 `json:"unit_price"`
-	Quantity    int     `json:"quantity"`
-	TaxRate     int     `json:"tax_rate"`
-}
-
-// API Response models
-type TransactionResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Receipt *Receipt `json:"receipt,omitempty"`
-}
+// NOTE: ProcessTransactionResponse removed - RESTful APIs return Receipt directly
+// with appropriate HTTP status codes (200 for success, 400/500 for errors)
 
 type KisimResponse struct {
 	Kisim []KisimInfo `json:"kisim"`
@@ -79,7 +62,7 @@ func (kl KisimLookup) GetKisimInfo(kisimID int) (KisimInfo, bool) {
 	return kisim, exists
 }
 
-// GetKisimName returns KISIM name by ID  
+// GetKisimName returns KISIM name by ID
 func (kl KisimLookup) GetKisimName(kisimID int) string {
 	if kisim, exists := kl[kisimID]; exists {
 		return kisim.Name
@@ -87,35 +70,8 @@ func (kl KisimLookup) GetKisimName(kisimID int) string {
 	return fmt.Sprintf("Unknown KISIM %d", kisimID)
 }
 
-// Helper methods
-func (r *Receipt) CalculateTotals() {
-	var total float64
-	var tax10Base, tax20Base float64
-	
-	for _, item := range r.Items {
-		total += item.TotalPrice
-		
-		baseAmount := item.TotalPrice / (1 + float64(item.TaxRate)/100)
-		if item.TaxRate == 10 {
-			tax10Base += baseAmount
-		} else if item.TaxRate == 20 {
-			tax20Base += baseAmount
-		}
-	}
-	
-	r.TaxBreakdown.Tax10Percent = TaxDetail{
-		TaxableAmount: tax10Base,
-		TaxAmount:     tax10Base * 0.10,
-	}
-	
-	r.TaxBreakdown.Tax20Percent = TaxDetail{
-		TaxableAmount: tax20Base,
-		TaxAmount:     tax20Base * 0.20,
-	}
-	
-	r.TaxBreakdown.TotalTax = r.TaxBreakdown.Tax10Percent.TaxAmount + r.TaxBreakdown.Tax20Percent.TaxAmount
-	r.TotalAmount = total
-}
+// NOTE: CalculateTotals method has been moved to CashRegister.calculateTotals()
+// Receipt is now a pure data structure with no business logic methods.
 
 func (r *Receipt) FormatForDisplay(kisimLookup KisimLookup) string {
 	layout := `
@@ -131,8 +87,8 @@ Fiş No: %s
 ========================================
 
 `
-	
-	header := fmt.Sprintf(layout, 
+
+	header := fmt.Sprintf(layout,
 		r.StoreName,
 		r.StoreVKN,
 		r.StoreAddress,
@@ -140,18 +96,18 @@ Fiş No: %s
 		r.TransactionID,
 		r.ReceiptSerial,
 	)
-	
+
 	items := ""
 	for _, item := range r.Items {
 		kisimName := kisimLookup.GetKisimName(item.KisimID)
-		items += fmt.Sprintf("%-20s %dx%.2f ₺%.2f\n", 
-			kisimName, 
-			item.Quantity, 
-			item.UnitPrice, 
+		items += fmt.Sprintf("%-20s %dx%.2f ₺%.2f\n",
+			kisimName,
+			item.Quantity,
+			item.UnitPrice,
 			item.TotalPrice,
 		)
 	}
-	
+
 	footer := fmt.Sprintf(`
 ----------------------------------------
 KDV %%10: ₺%.2f
@@ -163,7 +119,7 @@ GENEL TOPLAM: ₺%.2f
 ========================================
 Z Rapor No: %s
 ========================================
-`, 
+`,
 		r.TaxBreakdown.Tax10Percent.TaxAmount,
 		r.TaxBreakdown.Tax20Percent.TaxAmount,
 		r.TaxBreakdown.TotalTax,
@@ -171,6 +127,6 @@ Z Rapor No: %s
 		r.PaymentMethod,
 		r.ZReportNumber,
 	)
-	
+
 	return header + items + footer
 }

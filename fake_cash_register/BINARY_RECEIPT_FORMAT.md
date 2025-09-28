@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the binary receipt format used by the Turkish Cash Register system. The format is designed to be deterministic, compact, and version-aware to ensure consistent hash generation across different implementations.
+This document defines the binary receipt format used by the Turkish Cash Register system. The format is designed to be deterministic, compact, version-aware, and **privacy-preserving** to ensure consistent hash generation across different implementations while protecting user anonymity.
 
 ## Design Principles
 
@@ -11,6 +11,7 @@ This document defines the binary receipt format used by the Turkish Cash Registe
 3. **Version-aware** - Format version embedded for future extensibility
 4. **Cross-platform** - Works consistently across different architectures
 5. **Hash-stable** - Minor format changes don't break existing hash calculations
+6. **Privacy-preserving** - Users remain anonymous throughout the transaction flow
 
 ## Data Encoding
 
@@ -148,13 +149,13 @@ The signed receipt format concatenates the binary receipt with the signature:
   - r component: 32 bytes (big-endian)
   - s component: 32 bytes (big-endian)
 
-## Encrypted Signed Receipt Format
+## Encrypted Signed Receipt Format (Privacy-Preserving)
 
-The final encrypted format is the ECIES encryption of the signed receipt:
+The final encrypted format uses **user-generated ephemeral keys** with **privacy-preserving ECDH**:
 
 ```
 ┌─────────────────────────────────┐
-│ Ephemeral Public Key (65 bytes) │ <- Uncompressed P-256 point
+│ Temp Public Key (65 bytes)     │ <- Cash register's temporary key
 ├─────────────────────────────────┤
 │ Nonce (12 bytes)               │ <- AES-GCM nonce
 ├─────────────────────────────────┤
@@ -162,16 +163,101 @@ The final encrypted format is the ECIES encryption of the signed receipt:
 └─────────────────────────────────┘
 ```
 
+**Privacy Architecture**: 
+- User generates ephemeral key pair `(ephemeral_private, ephemeral_public)`
+- User provides `ephemeral_public` via QR code to cash register (privacy preserved)
+- Cash register generates temporary key pair `(temp_private, temp_public)` for this encryption
+- Cash register performs ECDH: `shared_secret = ephemeral_public × temp_private`
+- Cash register encrypts signed receipt using derived key from `shared_secret`
+- Cash register submits encrypted receipt to receipt bank indexed by user's `ephemeral_public`
+- User retrieves encrypted receipt from receipt bank using `ephemeral_public` as index
+- User decrypts by performing ECDH: `shared_secret = temp_public × ephemeral_private`
+
 ## Network Transmission
 
-For transmission over HTTP/JSON APIs, the binary data is encoded as Base64:
+### Privacy-Preserving Receipt Submission
+Cash register submits to Receipt Bank:
 
 ```json
 {
-  "encrypted_receipt": "<base64-encoded-binary-data>",
+  "ephemeral_key": "<base64-encoded-pem-public-key>",
+  "encrypted_receipt": "<base64-encoded-binary-data>"
+}
+```
+
+### Privacy-Preserving Receipt Retrieval  
+User queries Receipt Bank:
+
+```json
+{
   "ephemeral_key": "<base64-encoded-pem-public-key>"
 }
 ```
+
+Response:
+```json
+{
+  "encrypted_receipt": "<base64-encoded-binary-data>",
+  "status": "found"
+}
+```
+
+**Privacy Guarantee**: Neither cash register nor receipt bank can identify the user or link multiple transactions to the same user.
+
+## Privacy Architecture
+
+### Transaction Flow
+```
+┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
+│   User/Wallet   │         │ Cash Register   │         │ Receipt Bank    │
+└─────────────────┘         └─────────────────┘         └─────────────────┘
+         │                           │                           │
+         │ 1. Generate ephemeral     │                           │
+         │    key pair (private,     │                           │
+         │    public)                │                           │
+         │                           │                           │
+         │ 2. QR code: ephemeral     │                           │
+         │    PUBLIC key only ──────▶│                           │
+         │                           │                           │
+         │                           │ 3. Process transaction,   │
+         │                           │    create signed receipt  │
+         │                           │                           │
+         │                           │ 4. Encrypt with user's    │
+         │                           │    ephemeral public key   │
+         │                           │                           │
+         │                           │ 5. Submit to Receipt Bank │
+         │                           │    Index: ephemeral pub   │
+         │                           │    Data: encrypted ──────▶│
+         │                           │                           │
+         │ 6. Query Receipt Bank     │                           │
+         │    with ephemeral public  │                           │
+         │    key as index ─────────────────────────────────────▶│
+         │                           │                           │
+         │◀──────────────────────────────────────────────────────│ 7. Return encrypted
+         │                           │                           │    receipt data
+         │                           │                           │
+         │ 8. Decrypt with           │                           │
+         │    ephemeral private key  │                           │
+```
+
+### Privacy Benefits
+
+1. **User Anonymity**: 
+   - Cash register never sees user identity, only ephemeral public key
+   - Different ephemeral key for each transaction prevents linking
+
+2. **Receipt Bank Anonymity**:
+   - Receipt bank operates as anonymous key-value store
+   - No user identification possible
+   - Cannot correlate multiple receipts to same user
+
+3. **Forward Privacy**:
+   - Each transaction uses fresh ephemeral keys
+   - Compromise of one transaction doesn't affect others
+
+4. **Minimal Data**:
+   - QR code contains only ephemeral public key (no personal data)
+   - No persistent user identifiers in the system
 
 ## Version Evolution
 
@@ -211,7 +297,9 @@ Future format versions can:
 1. **Hash Integrity**: Binary format ensures identical hashes across platforms
 2. **Signature Verification**: Fixed 64-byte signature format simplifies validation
 3. **Replay Protection**: Timestamps and unique transaction IDs prevent replay attacks
-4. **Data Integrity**: ECIES provides authenticated encryption
+4. **Data Integrity**: AES-GCM provides authenticated encryption
+5. **User Privacy**: Ephemeral keys prevent user identification and transaction linking
+6. **Anonymous Retrieval**: Receipt bank operates as anonymous key-value store
 
 ## Compliance
 
