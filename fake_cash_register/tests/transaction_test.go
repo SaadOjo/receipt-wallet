@@ -26,6 +26,7 @@ var (
 
 // createTestCashRegister creates a new cash register for testing with all services
 func createTestCashRegister(verbose bool) *cashregister.CashRegister {
+	// Import mock package for other services
 	revenueAuth := mock.NewMockRevenueAuthority(verbose)
 	receiptBank := mock.NewMockReceiptBank(verbose)
 	cryptoService := crypto.NewCryptoService(verbose)
@@ -91,10 +92,11 @@ func TestTransactionWorkflow(t *testing.T) {
 
 	// Test 7: Issue receipt (privacy-preserving) - Use the new unified workflow
 	// Use QR scanner to generate a proper test ephemeral key
-	qrScanner := mock.NewMockQRScanner(false) // Non-verbose for cleaner test output
-	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
-	if err != nil {
-		t.Fatalf("Failed to generate test ephemeral key: %v", err)
+	// Generate test ephemeral key directly (simulating frontend QR scan)
+	userEphemeralKeyCompressed := []byte("test_ephemeral_key_32_bytes_long")
+	if len(userEphemeralKeyCompressed) != 32 {
+		// Pad to 32 bytes for consistency
+		userEphemeralKeyCompressed = append(userEphemeralKeyCompressed, make([]byte, 32-len(userEphemeralKeyCompressed))...)
 	}
 
 	// Start a new receipt for issuing test
@@ -186,10 +188,11 @@ func TestMockServices(t *testing.T) {
 	}
 
 	// Test receipt bank mock - generate a proper ephemeral key
-	qrScanner := mock.NewMockQRScanner(false)
-	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
-	if err != nil {
-		t.Fatalf("Failed to generate test ephemeral key: %v", err)
+	// Generate test ephemeral key directly (simulating frontend QR scan)
+	userEphemeralKeyCompressed := []byte("test_ephemeral_key_32_bytes_long")
+	if len(userEphemeralKeyCompressed) != 32 {
+		// Pad to 32 bytes for consistency
+		userEphemeralKeyCompressed = append(userEphemeralKeyCompressed, make([]byte, 32-len(userEphemeralKeyCompressed))...)
 	}
 
 	err = receiptBank.SubmitReceipt(userEphemeralKeyCompressed, []byte("mock_encrypted_data"))
@@ -272,10 +275,11 @@ func TestSpecificationCompliantWorkflow(t *testing.T) {
 	}
 
 	// Issue receipt (privacy-preserving) using unified workflow - generate proper ephemeral key
-	qrScanner := mock.NewMockQRScanner(false)
-	userEphemeralKeyCompressed, err := qrScanner.GetEphemeralKey()
-	if err != nil {
-		t.Fatalf("Failed to generate test ephemeral key: %v", err)
+	// Generate test ephemeral key directly (simulating frontend QR scan)
+	userEphemeralKeyCompressed := []byte("test_ephemeral_key_32_bytes_long")
+	if len(userEphemeralKeyCompressed) != 32 {
+		// Pad to 32 bytes for consistency
+		userEphemeralKeyCompressed = append(userEphemeralKeyCompressed, make([]byte, 32-len(userEphemeralKeyCompressed))...)
 	}
 
 	receipt, err := cashReg.IssueCurrentReceipt(userEphemeralKeyCompressed)

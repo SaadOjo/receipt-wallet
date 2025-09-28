@@ -9,6 +9,7 @@ import (
 	"fake-cash-register/internal/binary"
 	"fake-cash-register/internal/interfaces"
 	"fake-cash-register/internal/models"
+	"fake-cash-register/internal/transaction"
 )
 
 // CashRegister represents a cash register that manages complete receipt lifecycle
@@ -27,6 +28,9 @@ type CashRegister struct {
 	currentReceipt *models.Receipt
 	zReportCounter int
 	receiptCounter int
+
+	// Transaction manager for webhook confirmations
+	txManager *transaction.Manager
 }
 
 // NewCashRegister creates a new cash register with complete receipt lifecycle capabilities
@@ -47,6 +51,7 @@ func NewCashRegister(
 		verbose:          verbose,
 		zReportCounter:   1,
 		receiptCounter:   1,
+		txManager:        transaction.NewManager(verbose),
 	}
 }
 
@@ -335,4 +340,20 @@ func (cr *CashRegister) validateReceipt(receipt *models.Receipt) error {
 		return fmt.Errorf("receipt total must be greater than zero")
 	}
 	return nil
+}
+
+// ConfirmTransaction is called by webhook handler when wallet downloads receipt
+func (cr *CashRegister) ConfirmTransaction(receiptID string) bool {
+	if cr.txManager == nil {
+		if cr.verbose {
+			log.Printf("[CASH-REGISTER] Transaction manager not initialized")
+		}
+		return false
+	}
+
+	// Clean up any expired transactions while we're here
+	cr.txManager.CleanupExpiredTransactions()
+
+	// Process the confirmation - this removes the transaction
+	return cr.txManager.ConfirmTransaction(receiptID)
 }

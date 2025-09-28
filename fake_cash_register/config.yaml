@@ -1,6 +1,8 @@
 server:
   port: 8080
   verbose: true
+  webhook_host: "127.0.0.1"
+  webhook_port: 4407
 
 standalone_mode: false
 
@@ -13,8 +15,7 @@ revenue_authority:
   url: "http://127.0.0.1:4406"
 
 receipt_bank:
-  url: "http://localhost:5000"
-  webhook_path: "/webhook"
+  url: "http://127.0.0.1:4403"
 
 kisim:
   - id: 1

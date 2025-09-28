@@ -41,8 +41,8 @@ func (ms *MemoryStorage) Store(receipt *models.Receipt) error {
 	ms.receipts[receipt.EphemeralKey] = receipt
 
 	if ms.verbose {
-		log.Printf("[STORAGE] Stored receipt %s (ephemeral key: %s...)",
-			receipt.ReceiptID, receipt.EphemeralKey[:8])
+		log.Printf("[STORAGE] Stored receipt %s (ephemeral key: %s)",
+			receipt.ReceiptID, receipt.EphemeralKey)
 	}
 
 	return nil
@@ -55,6 +55,13 @@ func (ms *MemoryStorage) Retrieve(ephemeralKey string) (*models.Receipt, error) 
 
 	receipt, exists := ms.receipts[ephemeralKey]
 	if !exists {
+		if ms.verbose {
+			log.Printf("[STORAGE] Receipt not found for ephemeral key: %s", ephemeralKey)
+			log.Printf("[STORAGE] Available keys: %d", len(ms.receipts))
+			for key := range ms.receipts {
+				log.Printf("[STORAGE]   Available key: %s", key)
+			}
+		}
 		return nil, fmt.Errorf("receipt not found")
 	}
 
@@ -62,8 +69,8 @@ func (ms *MemoryStorage) Retrieve(ephemeralKey string) (*models.Receipt, error) 
 	delete(ms.receipts, ephemeralKey)
 
 	if ms.verbose {
-		log.Printf("[STORAGE] Retrieved and deleted receipt %s (ephemeral key: %s...)",
-			receipt.ReceiptID, ephemeralKey[:8])
+		log.Printf("[STORAGE] Retrieved and deleted receipt %s (ephemeral key: %s)",
+			receipt.ReceiptID, ephemeralKey)
 	}
 
 	return receipt, nil

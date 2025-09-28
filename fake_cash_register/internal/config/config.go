@@ -9,27 +9,28 @@ import (
 
 type Config struct {
 	Server struct {
-		Port    int  `yaml:"port"`
-		Verbose bool `yaml:"verbose"`
+		Port        int    `yaml:"port"`
+		Verbose     bool   `yaml:"verbose"`
+		WebhookHost string `yaml:"webhook_host"`
+		WebhookPort int    `yaml:"webhook_port"`
 	} `yaml:"server"`
-	
+
 	StandaloneMode bool `yaml:"standalone_mode"`
-	
+
 	Store struct {
 		VKN     string `yaml:"vkn"`
 		Name    string `yaml:"name"`
 		Address string `yaml:"address"`
 	} `yaml:"store"`
-	
+
 	RevenueAuthority struct {
 		URL string `yaml:"url"`
 	} `yaml:"revenue_authority"`
-	
+
 	ReceiptBank struct {
-		URL         string `yaml:"url"`
-		WebhookPath string `yaml:"webhook_path"`
+		URL string `yaml:"url"`
 	} `yaml:"receipt_bank"`
-	
+
 	Kisim []Kisim `yaml:"kisim"`
 }
 

@@ -1,0 +1,33 @@
+2025/09/28 23:48:30 Initialized REAL services for online mode
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2025/09/28 23:48:30 Verbose mode enabled - HTTP requests will be logged
+[GIN-debug] Loaded HTML Templates (2): 
+	- 
+	- index.html
+
+[GIN-debug] GET    /static/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] HEAD   /static/*filepath         --> github.com/gin-gonic/gin.(*RouterGroup).createStaticHandler.func1 (3 handlers)
+[GIN-debug] GET    /                         --> fake-cash-register/internal/handlers.(*CashRegisterHandler).HomePage-fm (3 handlers)
+[GIN-debug] GET    /api/kisim                --> fake-cash-register/internal/handlers.(*CashRegisterHandler).GetKisim-fm (3 handlers)
+[GIN-debug] POST   /api/transaction/start    --> fake-cash-register/internal/handlers.(*CashRegisterHandler).StartTransaction-fm (3 handlers)
+[GIN-debug] POST   /api/transaction/add-item --> fake-cash-register/internal/handlers.(*CashRegisterHandler).AddItem-fm (3 handlers)
+[GIN-debug] POST   /api/transaction/payment  --> fake-cash-register/internal/handlers.(*CashRegisterHandler).SetPaymentMethod-fm (3 handlers)
+[GIN-debug] POST   /api/transaction/issue_receipt --> fake-cash-register/internal/handlers.(*CashRegisterHandler).IssueReceipt-fm (3 handlers)
+[GIN-debug] POST   /api/transaction/cancel   --> fake-cash-register/internal/handlers.(*CashRegisterHandler).CancelTransaction-fm (3 handlers)
+[GIN-debug] GET    /api/transaction/current  --> fake-cash-register/internal/handlers.(*CashRegisterHandler).GetCurrentTransaction-fm (3 handlers)
+[GIN-debug] POST   /webhook                  --> fake-cash-register/internal/handlers.(*CashRegisterHandler).WebhookHandler-fm (3 handlers)
+[GIN-debug] GET    /health                   --> fake-cash-register/internal/handlers.(*CashRegisterHandler).HealthCheck-fm (3 handlers)
+2025/09/28 23:48:30 Starting fake cash register on port 8080
+2025/09/28 23:48:30 Running in ONLINE mode - connecting to external services
+2025/09/28 23:48:30   Revenue Authority: http://127.0.0.1:4406
+2025/09/28 23:48:30   Receipt Bank: http://127.0.0.1:4403
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+[GIN-debug] [ERROR] listen tcp :8080: bind: address already in use
+2025/09/28 23:48:30 Failed to start server: listen tcp :8080: bind: address already in use

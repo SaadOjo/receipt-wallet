@@ -22,6 +22,7 @@ type ReceiptSubmission struct {
 	EphemeralKey  string `json:"ephemeral_key"`
 	EncryptedData string `json:"encrypted_data"`
 	ReceiptID     string `json:"receipt_id"`
+	WebhookURL    string `json:"webhook_url"`
 }
 
 type ReceiptBankResponse struct {

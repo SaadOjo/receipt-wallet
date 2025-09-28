@@ -138,8 +138,8 @@ func (h *CashRegisterHandler) SetPaymentMethod(c *gin.Context) {
 	})
 }
 
-// POST /api/transaction/process - Process transaction with ephemeral key
-func (h *CashRegisterHandler) ProcessTransaction(c *gin.Context) {
+// POST /api/transaction/issue_receipt - Issue receipt with ephemeral key
+func (h *CashRegisterHandler) IssueReceipt(c *gin.Context) {
 	var req struct {
 		EphemeralKey string `json:"ephemeral_key" binding:"required"`
 	}
@@ -225,6 +225,20 @@ func (h *CashRegisterHandler) WebhookHandler(c *gin.Context) {
 	if h.config.Server.Verbose {
 		log.Printf("[WEBHOOK] Received confirmation for receipt %s: %s",
 			payload.ReceiptID, payload.Status)
+	}
+
+	// Confirm the transaction when wallet downloads the receipt
+	if payload.Status == "downloaded" {
+		confirmed := h.cashRegister.ConfirmTransaction(payload.ReceiptID)
+		if confirmed {
+			if h.config.Server.Verbose {
+				log.Printf("[WEBHOOK] Transaction %s confirmed successfully", payload.ReceiptID)
+			}
+		} else {
+			if h.config.Server.Verbose {
+				log.Printf("[WEBHOOK] Transaction %s not found for confirmation", payload.ReceiptID)
+			}
+		}
 	}
 
 	c.Status(http.StatusOK) // 200 - Webhook processed successfully

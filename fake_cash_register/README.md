@@ -87,7 +87,7 @@ products:
 - `GET /` - Main cash register interface
 - `POST /api/transaction/start` - Start new transaction
 - `POST /api/transaction/add-item` - Add item to transaction
-- `POST /api/transaction/process` - Process complete transaction
+- `POST /api/transaction/issue_receipt` - Issue complete receipt
 - `GET /api/kisim` - Get kisim (tax category) list
 - `POST /webhook` - Receipt bank webhook endpoint
 - `GET /health` - Health check

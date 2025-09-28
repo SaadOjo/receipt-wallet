@@ -12,12 +12,6 @@ type ReceiptBankService interface {
 	SetWebhookHandler(handler WebhookHandler)
 }
 
-// QRScannerService handles ephemeral key input (raw compressed 33-byte keys)
-// Key validation is handled by CryptoService - QRScanner just extracts keys
-type QRScannerService interface {
-	GetEphemeralKey() ([]byte, error)
-}
-
 // CryptoService handles cryptographic operations with binary data (privacy-preserving)
 // Key validation is handled internally by the encryption method
 type CryptoService interface {

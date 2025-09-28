@@ -1,7 +1,6 @@
 package models
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -40,6 +39,7 @@ type TaxDetail struct {
 }
 
 // NOTE: ProcessTransactionResponse removed - RESTful APIs return Receipt directly
+// (renamed from /process to /issue_receipt for clarity)
 // with appropriate HTTP status codes (200 for success, 400/500 for errors)
 
 type KisimResponse struct {
@@ -60,73 +60,4 @@ type KisimLookup map[int]KisimInfo
 func (kl KisimLookup) GetKisimInfo(kisimID int) (KisimInfo, bool) {
 	kisim, exists := kl[kisimID]
 	return kisim, exists
-}
-
-// GetKisimName returns KISIM name by ID
-func (kl KisimLookup) GetKisimName(kisimID int) string {
-	if kisim, exists := kl[kisimID]; exists {
-		return kisim.Name
-	}
-	return fmt.Sprintf("Unknown KISIM %d", kisimID)
-}
-
-// NOTE: CalculateTotals method has been moved to CashRegister.calculateTotals()
-// Receipt is now a pure data structure with no business logic methods.
-
-func (r *Receipt) FormatForDisplay(kisimLookup KisimLookup) string {
-	layout := `
-========================================
-         %s
-========================================
-VKN: %s
-%s
-========================================
-Tarih: %s
-İşlem No: %s
-Fiş No: %s
-========================================
-
-`
-
-	header := fmt.Sprintf(layout,
-		r.StoreName,
-		r.StoreVKN,
-		r.StoreAddress,
-		r.Timestamp.Format("02.01.2006 15:04"),
-		r.TransactionID,
-		r.ReceiptSerial,
-	)
-
-	items := ""
-	for _, item := range r.Items {
-		kisimName := kisimLookup.GetKisimName(item.KisimID)
-		items += fmt.Sprintf("%-20s %dx%.2f ₺%.2f\n",
-			kisimName,
-			item.Quantity,
-			item.UnitPrice,
-			item.TotalPrice,
-		)
-	}
-
-	footer := fmt.Sprintf(`
-----------------------------------------
-KDV %%10: ₺%.2f
-KDV %%20: ₺%.2f
-Toplam KDV: ₺%.2f
-
-GENEL TOPLAM: ₺%.2f
-Ödeme: %s
-========================================
-Z Rapor No: %s
-========================================
-`,
-		r.TaxBreakdown.Tax10Percent.TaxAmount,
-		r.TaxBreakdown.Tax20Percent.TaxAmount,
-		r.TaxBreakdown.TotalTax,
-		r.TotalAmount,
-		r.PaymentMethod,
-		r.ZReportNumber,
-	)
-
-	return header + items + footer
 }

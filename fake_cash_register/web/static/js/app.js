@@ -280,7 +280,7 @@ class CashRegister {
     async submitTransaction(ephemeralKey) {
         try {
             this.log('İşlem gönderiliyor...');
-            const response = await fetch('/api/transaction/process', {
+            const response = await fetch('/api/transaction/issue_receipt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ephemeral_key: ephemeralKey })
@@ -389,6 +389,10 @@ class CashRegister {
             videoElement.style.width = '100%';
             videoElement.style.maxHeight = '300px';
             
+            // Create optimized canvas for better performance (eliminates Canvas2D warning)
+            const canvas = document.createElement('canvas');
+            canvas.getContext('2d', { willReadFrequently: true });
+            
             document.getElementById('qr-reader').innerHTML = '';
             document.getElementById('qr-reader').appendChild(videoElement);
             
@@ -399,6 +403,8 @@ class CashRegister {
                     this.submitTransaction(result.data);
                 },
                 {
+                    returnDetailedScanResult: true,  // Fix: Enable modern API - result becomes {data, cornerPoints}
+                    canvas: canvas,  // Use optimized canvas to eliminate performance warning
                     highlightScanRegion: true,
                     highlightCodeOutline: true,
                 }

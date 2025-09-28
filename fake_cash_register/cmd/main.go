@@ -10,7 +10,7 @@ import (
 	"fake-cash-register/internal/handlers"
 	"fake-cash-register/internal/interfaces"
 	"fake-cash-register/internal/models"
-	"fake-cash-register/internal/services/mock"
+	"fake-cash-register/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -37,24 +37,26 @@ func main() {
 		}
 	}
 
-	// Initialize services directly (no container needed)
+	// Initialize services based on configuration (factory pattern)
 	cryptoService := crypto.NewCryptoService(cfg.Server.Verbose)
-	revenueAuthority := mock.NewMockRevenueAuthority(cfg.Server.Verbose)
-	receiptBank := mock.NewMockReceiptBank(cfg.Server.Verbose)
+	revenueAuthority, receiptBank, err := services.CreateServices(cfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize services: %v", err)
+	}
 
-	// Set up webhook handlers (for standalone mode)
-	if cfg.StandaloneMode {
-		// In standalone mode, we can skip webhook setup as it's for testing only
-		if cfg.Server.Verbose {
-			log.Printf("Skipping webhook handler setup in standalone mode")
-		}
+	// Set up webhook handlers for online mode
+	if !cfg.StandaloneMode {
+		// TODO: Implement webhook handler for real receipt bank confirmations
+		// For now, we'll use the mock webhook handler
+		// webhookHandler := real.NewWebhookHandler(cfg.Server.Verbose)
+		// receiptBank.SetWebhookHandler(webhookHandler)
 	}
 
 	if cfg.Server.Verbose {
 		if cfg.StandaloneMode {
 			log.Printf("Initialized MOCK services for standalone mode")
 		} else {
-			log.Printf("WARNING: Real service implementations not yet available, using mocks for online mode")
+			log.Printf("Initialized REAL services for online mode")
 		}
 	}
 
@@ -103,7 +105,7 @@ func main() {
 			tx.POST("/start", handler.StartTransaction)
 			tx.POST("/add-item", handler.AddItem)
 			tx.POST("/payment", handler.SetPaymentMethod)
-			tx.POST("/process", handler.ProcessTransaction)
+			tx.POST("/issue_receipt", handler.IssueReceipt)
 			tx.POST("/cancel", handler.CancelTransaction)
 			tx.GET("/current", handler.GetCurrentTransaction)
 		}

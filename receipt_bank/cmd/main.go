@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net"
 
 	"receipt-bank/internal/config"
 	"receipt-bank/internal/handlers"
@@ -40,8 +41,32 @@ func main() {
 	// Initialize and start server
 	srv := server.NewServer(handler, cfg.Server.Verbose)
 
+	// Get LAN IP address
+	lanIP := getLANIPAddress()
 	log.Printf("[MAIN] Receipt Bank ready - listening on port %d", cfg.Server.Port)
+	log.Printf("[MAIN] Service accessible at:")
+	log.Printf("[MAIN]   Local:  http://localhost:%d", cfg.Server.Port)
+	if lanIP != "" {
+		log.Printf("[MAIN]   LAN:    http://%s:%d", lanIP, cfg.Server.Port)
+	}
+	log.Printf("[MAIN] API endpoints:")
+	log.Printf("[MAIN]   POST /submit")
+	log.Printf("[MAIN]   GET  /collect/{ephemeral_key}")
+	log.Printf("[MAIN]   GET  /health")
+
 	if err := srv.Start(cfg.Server.Port); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
+}
+
+// getLANIPAddress returns the local network IP address
+func getLANIPAddress() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String()
 }
