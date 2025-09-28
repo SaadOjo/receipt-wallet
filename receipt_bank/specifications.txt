@@ -1,0 +1,135 @@
+# Receipt Bank Service Specification
+
+## Overview
+A Receipt Bank service that receives encrypted receipts from cash registers and stores them for wallet collection.
+
+**Flow:**
+1. Cash register submits encrypted receipt with ephemeral wallet key
+2. Receipt Bank stores receipt in memory (POC - no persistence)
+3. Wallet collects receipt using same ephemeral key as identifier  
+4. Receipt Bank calls cash register webhook to notify receipt collection
+
+## Technical Requirements
+
+**Language:** Go  
+**Storage:** In-memory (POC only)  
+**Architecture:** RESTful API  
+**Style:** Minimalist, strict contracts, no recovery attempts, maintainable  
+**Security:** None (POC only)  
+**Error Handling:** Standard HTTP status codes  
+**Data Format:** Treat receipt data as opaque binary blobs
+
+## API Endpoints
+
+### 1. POST /submit
+**Purpose:** Cash register submits encrypted receipt for storage
+
+**Request Format:**
+```json
+{
+  "ephemeral_key": "base64-encoded-33-byte-compressed-public-key",  
+  "encrypted_data": "base64-encoded-encrypted-receipt",
+  "receipt_id": "unique-receipt-identifier",
+  "webhook_url": "http://cash-register:8080/webhook" 
+}
+```
+
+**Response Format:**
+```json
+{
+  "receipt_id": "unique-receipt-identifier"
+}
+```
+
+**Validation (Proposed):**
+- `ephemeral_key`: Must be valid base64, decode to exactly 33 bytes
+- `encrypted_data`: Must be valid base64, non-empty
+- `receipt_id`: Must be non-empty string, alphanumeric + hyphens only
+- `webhook_url`: Must be valid HTTP/HTTPS URL
+- Reject duplicate `receipt_id` submissions
+
+**HTTP Status Codes:**
+- 200: Success
+- 400: Invalid request format or validation failed
+- 409: Receipt ID already exists
+- 500: Internal server error
+
+### 2. GET /collect/{ephemeral_key}
+**Purpose:** Wallet retrieves receipt using ephemeral key
+
+**Parameters:**
+- `ephemeral_key`: base64-encoded 33-byte compressed public key (URL path parameter)
+
+**Response Format (Success):**
+```json
+{
+  "encrypted_data": "base64-encoded-encrypted-receipt",
+  "receipt_id": "unique-receipt-identifier"
+}
+```
+
+**Behavior:**
+- Receipt is deleted after successful collection (one-time retrieval)
+- Triggers webhook notification to cash register
+
+**HTTP Status Codes:**
+- 200: Receipt found and returned  
+- 404: No receipt exists for given ephemeral key
+- 400: Invalid ephemeral key format
+- 500: Internal server error
+
+### 3. Webhook Registration (via /submit)
+**Purpose:** Cash register provides webhook URL when submitting receipt
+
+**Enhanced /submit Request Format:**
+```json
+{
+  "ephemeral_key": "base64-encoded-33-byte-compressed-public-key",  
+  "encrypted_data": "base64-encoded-encrypted-receipt",
+  "receipt_id": "unique-receipt-identifier",
+  "webhook_url": "http://cash-register:8080/webhook"
+}
+```
+
+**Outgoing Webhook (to Cash Register /webhook endpoint):**
+When receipt is collected, Receipt Bank calls the registered webhook URL:
+```json
+{
+  "receipt_id": "unique-receipt-identifier", 
+  "status": "downloaded",
+  "timestamp": "2025-09-28T10:30:00Z"
+}
+```
+
+**Webhook Behavior:**
+- Best effort delivery with retries (configured in config.yaml)
+- Log failures but don't block receipt collection
+- Timeout after configured period
+
+## Configuration
+
+**config.yaml:**
+```yaml
+server:
+  port: 4403
+  verbose: true
+
+storage:
+  cleanup_interval: "1h"  # Clean up uncollected receipts
+  max_receipt_age: "24h"  # Auto-delete old receipts
+
+webhooks:
+  timeout: "5s"
+  max_retries: 3
+```
+
+## Implementation Notes
+
+- Store receipts in map: `ephemeral_key` -> `{encrypted_data, receipt_id, webhook_url, timestamp}`
+- No authentication required (POC)
+- Log all operations for debugging  
+- Handle webhook failures gracefully (log and continue)
+- Clean up old uncollected receipts periodically
+- Use HTTP client with configurable timeouts for webhook calls
+- Index by base64-encoded ephemeral key for fast lookups 
+

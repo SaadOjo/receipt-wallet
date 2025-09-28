@@ -1,0 +1,11 @@
+server:
+  port: 4403
+  verbose: true
+
+storage:
+  cleanup_interval: "1h"
+  max_receipt_age: "24h"
+
+webhooks:
+  timeout: "5s"
+  max_retries: 3
