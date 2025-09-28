@@ -1,0 +1,115 @@
+CASH REGISTER USAGE PROCESS SPECIFICATION
+========================================
+
+VERSION: 2.1
+DATE: 2025-09-28
+PURPOSE: Define the cash register transaction workflow for Turkish yazarkasa system
+
+OVERVIEW
+--------
+This specification defines the transaction workflow for a Turkish yazarkasa-style cash register system. The process is designed to be simple and efficient for cashiers while maintaining compliance with Turkish revenue authority requirements.
+
+TRANSACTION WORKFLOW
+-------------------
+
+1. NUMERIC INPUT SYSTEM
+
+   Turkish Number Format:
+   - All numeric input uses Turkish decimal separator (comma: ,)
+   - Examples: "5,50" (five lira fifty kuruş), "12,75" (twelve lira seventy-five kuruş)
+   - Period key (.) automatically converts to comma (,) for Turkish compliance
+
+   Unified Input Display:
+   - All numeric input appears in main transaction screen
+   - Input shown without labels until context is determined
+   - Maximum 8 characters including decimal separator
+
+2. ITEM ENTRY PROCESS
+
+   Direct Item Entry (No Numeric Input):
+   - Cashier presses KISIM button directly
+   - Item added with preset price and quantity of 1
+   - Multiple presses of same KISIM button increment quantity of that item
+
+   Custom Price Entry:
+   - Cashier enters price using numeric keypad (e.g., "12,50")
+   - Price appears in main display without label
+   - Cashier presses KISIM button → Item added with custom price and quantity of 1
+
+   Custom Quantity Entry:
+   - Cashier enters desired quantity (e.g., "3")
+   - Quantity appears in main display without label  
+   - Cashier presses MIKTAR button → Quantity captured, display clears
+   - [Optional] Cashier enters price (e.g., "15,75") → Display shows "FİYAT: 15,75"
+   - Cashier presses KISIM button → Item added with captured quantity and price
+
+3. TRANSACTION COMPLETION
+
+   Payment Selection:
+   - Cashier presses NAKİT (Cash) OR KREDİ KART (Credit Card) button
+   - Transaction is immediately processed and completed without confirmation
+   - Receipt generation and submission happens automatically
+   - No receipt preview or additional steps required
+
+4. TRANSACTION MANAGEMENT
+
+   Transaction Auto-Start:
+   - Transaction automatically begins when first item is added to buffer
+   - No explicit "start transaction" action required
+
+   Transaction Cancellation:
+   - Only complete transaction cancellation is allowed via CANCEL button
+   - Individual items CANNOT be deleted once added to buffer
+   - Cancel button removes all items and clears entire transaction buffer
+   - Any error during processing automatically cancels entire transaction
+
+   KISIM Preset Prices:
+   - Each KISIM button has a default price configured in the system
+   - Direct KISIM press uses preset price; numeric input overrides default
+
+COMPLETE WORKFLOW SPECIFICATION
+-------------------------------
+
+Workflow Examples:
+
+Scenario A: Simple Item Addition
+1. Cashier presses KISIM button directly
+2. Item added with preset price, quantity 1
+3. Repeat for additional items
+4. Press NAKİT/KREDİ KART → Transaction completes immediately
+
+Scenario B: Custom Price
+1. Cashier enters "15,75" → Display shows: "15,75"
+2. Cashier presses KISIM button → Item added with ₺15,75, quantity 1
+3. Press NAKİT/KREDİ KART → Transaction completes immediately
+
+Scenario C: Custom Quantity and Price
+1. Cashier enters "3" → Display shows: "3"
+2. Cashier presses MIKTAR → Quantity 3 captured, display clears
+3. Cashier enters "12,50" → Display shows: "FİYAT: 12,50"
+4. Cashier presses KISIM → Item added with quantity 3, price ₺12,50
+5. Press NAKİT/KREDİ KART → Transaction completes immediately
+
+Scenario D: Quantity Only
+1. Cashier enters "2" → Display shows: "2"
+2. Cashier presses MIKTAR → Quantity 2 captured, display clears
+3. Cashier presses KISIM → Item added with quantity 2, preset price
+4. Press NAKİT/KREDİ KART → Transaction completes immediately
+
+Cancellation Flow:
+- Press CANCEL button → Entire transaction cancelled and buffer cleared
+- Individual item deletion is NOT ALLOWED per specification
+
+KEY BEHAVIORAL RULES
+--------------------
+- Turkish decimal format: comma (,) as decimal separator, not period (.)
+- Numeric input is context-sensitive: could be price or quantity until determined
+- MIKTAR button captures current input as quantity and switches to price mode
+- Quantity defaults to 1 if MIKTAR is not used
+- Payment buttons (NAKİT/KREDİ KART) immediately complete transaction
+- No confirmation dialogs or receipt previews during checkout
+- Only complete transaction cancellation is supported
+- Transaction auto-starts with first item addition
+- Multiple presses of same KISIM increment quantity of existing item
+- All numeric input appears in main transaction display area
+- Maximum 8 characters for any numeric input

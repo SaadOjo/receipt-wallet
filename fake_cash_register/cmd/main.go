@@ -8,6 +8,7 @@ import (
 	"fake-cash-register/internal/crypto"
 	"fake-cash-register/internal/handlers"
 	"fake-cash-register/internal/interfaces"
+	"fake-cash-register/internal/models"
 	"fake-cash-register/internal/services"
 	"fake-cash-register/internal/services/mock"
 
@@ -55,7 +56,7 @@ func main() {
 		{
 			tx.POST("/start", handler.StartTransaction)
 			tx.POST("/add-item", handler.AddItem)
-			tx.POST("/set-quantity", handler.SetQuantity)
+		tx.POST("/update-item-quantity", handler.UpdateItemQuantity)
 			tx.POST("/payment", handler.SetPaymentMethod)
 			tx.POST("/generate-receipt", handler.GenerateReceipt)
 			tx.POST("/process", handler.ProcessTransaction)
@@ -91,34 +92,45 @@ func initializeServices(cfg *config.Config) *interfaces.ServiceContainer {
 	var revenueAuthority interfaces.RevenueAuthorityService
 	var receiptBank interfaces.ReceiptBankService
 	var qrScanner interfaces.QRScannerService
-	var cryptoService interfaces.CryptoService
+	
+	// Always use real crypto service - mock services provide valid data for it
+	cryptoService := crypto.NewCryptoService(cfg.Server.Verbose)
 
 	if cfg.StandaloneMode {
-		// Use mock services
+		// Use mock services that generate valid data for real crypto service
 		revenueAuthority = mock.NewMockRevenueAuthority(cfg.Server.Verbose)
 		receiptBank = mock.NewMockReceiptBank(cfg.Server.Verbose)
 		qrScanner = mock.NewMockQRScanner(cfg.Server.Verbose)
-		cryptoService = crypto.NewMockCryptoService(cfg.Server.Verbose)
 		
 		// Set up webhook handler for mock receipt bank
 		webhookHandler := handlers.NewWebhookHandler(cfg.Server.Verbose)
 		receiptBank.SetWebhookHandler(webhookHandler)
 		
 		if cfg.Server.Verbose {
-			log.Printf("Initialized MOCK services for standalone mode")
+			log.Printf("Initialized MOCK services for standalone mode with REAL crypto service")
 		}
 	} else {
 		// Use real services (to be implemented)
 		// For now, fall back to mock services
-		log.Printf("WARNING: Real service implementations not yet available, using mocks")
+		log.Printf("WARNING: Real service implementations not yet available, using mocks with REAL crypto")
 		
 		revenueAuthority = mock.NewMockRevenueAuthority(cfg.Server.Verbose)
 		receiptBank = mock.NewMockReceiptBank(cfg.Server.Verbose)
 		qrScanner = mock.NewMockQRScanner(cfg.Server.Verbose)
-		cryptoService = crypto.NewCryptoService(cfg.Server.Verbose)
 		
 		webhookHandler := handlers.NewWebhookHandler(cfg.Server.Verbose)
 		receiptBank.SetWebhookHandler(webhookHandler)
+	}
+
+	// Create KISIM lookup from config
+	kisimLookup := make(models.KisimLookup)
+	for _, kisim := range cfg.Kisim {
+		kisimLookup[kisim.ID] = models.KisimInfo{
+			ID:          kisim.ID,
+			Name:        kisim.Name,
+			TaxRate:     kisim.TaxRate,
+			PresetPrice: kisim.PresetPrice,
+		}
 	}
 
 	// Initialize transaction service
@@ -126,6 +138,7 @@ func initializeServices(cfg *config.Config) *interfaces.ServiceContainer {
 		revenueAuthority,
 		receiptBank,
 		cryptoService,
+		kisimLookup,
 		cfg.Server.Verbose,
 	)
 

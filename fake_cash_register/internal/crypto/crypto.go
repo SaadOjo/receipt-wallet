@@ -1,18 +1,19 @@
 package crypto
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
+	"io"
 	"log"
 
-	"fake-cash-register/internal/models"
+	"golang.org/x/crypto/hkdf"
+
+	"fake-cash-register/internal/binary"
 )
 
 type CryptoService struct {
@@ -25,72 +26,58 @@ func NewCryptoService(verbose bool) *CryptoService {
 	}
 }
 
-// GenerateReceiptHash creates a SHA-256 hash of the receipt data
-func (c *CryptoService) GenerateReceiptHash(receipt *models.Receipt) (string, error) {
+// GenerateReceiptHash creates a SHA-256 hash of the binary receipt data
+func (c *CryptoService) GenerateReceiptHash(binaryReceipt []byte) []byte {
 	if c.verbose {
-		log.Printf("[CRYPTO] Generating hash for receipt %s", receipt.TransactionID)
+		log.Printf("[CRYPTO] Generating hash for %d byte binary receipt", len(binaryReceipt))
 	}
 	
-	// Serialize receipt to JSON
-	receiptJSON, err := json.Marshal(receipt)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal receipt: %v", err)
-	}
-	
-	// Calculate SHA-256 hash
-	hash := sha256.Sum256(receiptJSON)
-	
-	// Encode to base64 (44 characters for SHA-256)
-	hashB64 := base64.StdEncoding.EncodeToString(hash[:])
+	// Calculate SHA-256 hash of binary data
+	binaryHash := sha256.Sum256(binaryReceipt)
 	
 	if c.verbose {
-		log.Printf("[CRYPTO] Generated hash: %s", hashB64)
+		hashBase64 := binary.ToBase64(binaryHash[:])
+		log.Printf("[CRYPTO] Generated hash: %s", hashBase64)
 	}
 	
-	return hashB64, nil
+	return binaryHash[:]
 }
 
-// EncryptWithEphemeralKey encrypts data using the ephemeral public key
-func (c *CryptoService) EncryptWithEphemeralKey(data []byte, ephemeralKeyPEM string) (string, error) {
+// EncryptWithEphemeralKey encrypts binary data using ECIES with the ephemeral public key
+// Strict contract: ephemeralKeyPEMBase64 must be base64(PEM("PUBLIC KEY", ECDSA-P256-PublicKey))
+func (c *CryptoService) EncryptWithEphemeralKey(binaryData []byte, ephemeralKeyPEMBase64 string) ([]byte, error) {
 	if c.verbose {
-		log.Printf("[CRYPTO] Encrypting %d bytes with ephemeral key", len(data))
+		log.Printf("[CRYPTO] Encrypting %d bytes with ephemeral key", len(binaryData))
 	}
 	
-	// Parse the ephemeral public key
-	publicKey, err := c.parsePublicKey(ephemeralKeyPEM)
+	// Parse the ephemeral public key (strict contract - no fallbacks)
+	recipientPublicKey, err := binary.PEMBase64ToPublicKey(ephemeralKeyPEMBase64)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse ephemeral key: %v", err)
+		return nil, fmt.Errorf("failed to parse ephemeral key: %v", err)
 	}
 	
-	// For ECDSA encryption, we'll use a hybrid approach:
-	// 1. Generate a random AES key
-	// 2. Encrypt data with AES
-	// 3. Encrypt AES key with ECDSA (simulate ECIES)
-	
-	// For this PoC, we'll use a simplified approach
-	// In production, you'd use proper ECIES implementation
-	encryptedData, err := c.hybridEncrypt(data, publicKey)
+	// Perform ECIES encryption
+	binaryEncrypted, err := c.eciesEncrypt(binaryData, recipientPublicKey)
 	if err != nil {
-		return "", fmt.Errorf("encryption failed: %v", err)
+		return nil, fmt.Errorf("ECIES encryption failed: %v", err)
 	}
-	
-	// Encode result to base64
-	result := base64.StdEncoding.EncodeToString(encryptedData)
 	
 	if c.verbose {
-		log.Printf("[CRYPTO] Encryption successful, result size: %d bytes", len(result))
+		log.Printf("[CRYPTO] ECIES encryption successful, result size: %d bytes", len(binaryEncrypted))
 	}
 	
-	return result, nil
+	return binaryEncrypted, nil
 }
 
 // ValidateEphemeralKey validates the format and structure of an ephemeral key
-func (c *CryptoService) ValidateEphemeralKey(keyPEM string) error {
+// Strict contract: must be base64(PEM("PUBLIC KEY", ECDSA-P256-PublicKey))
+func (c *CryptoService) ValidateEphemeralKey(ephemeralKeyPEMBase64 string) error {
 	if c.verbose {
 		log.Printf("[CRYPTO] Validating ephemeral key")
 	}
 	
-	_, err := c.parsePublicKey(keyPEM)
+	// Use strict parsing - no fallbacks
+	_, err := binary.PEMBase64ToPublicKey(ephemeralKeyPEMBase64)
 	if err != nil {
 		return fmt.Errorf("invalid ephemeral key: %v", err)
 	}
@@ -102,107 +89,148 @@ func (c *CryptoService) ValidateEphemeralKey(keyPEM string) error {
 	return nil
 }
 
-// parsePublicKey parses a PEM-encoded public key
-func (c *CryptoService) parsePublicKey(keyPEM string) (*ecdsa.PublicKey, error) {
-	// Decode base64 first (assuming the key comes base64 encoded from QR)
-	keyBytes, err := base64.StdEncoding.DecodeString(keyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 key: %v", err)
-	}
-	
-	// Try to parse as PEM
-	block, _ := pem.Decode(keyBytes)
-	if block == nil {
-		// If not PEM, try direct parsing
-		return c.parseRawPublicKey(keyBytes)
-	}
-	
-	// Parse PEM block
-	publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse public key: %v", err)
-	}
-	
-	ecdsaKey, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("key is not ECDSA public key")
-	}
-	
-	return ecdsaKey, nil
-}
 
-// parseRawPublicKey parses raw public key bytes
-func (c *CryptoService) parseRawPublicKey(keyBytes []byte) (*ecdsa.PublicKey, error) {
-	// For this PoC, we'll create a mock key for validation
-	// In production, you'd parse the actual key bytes
-	return &ecdsa.PublicKey{
-		Curve: elliptic.P256(),
-		X:     elliptic.P256().Params().Gx,
-		Y:     elliptic.P256().Params().Gy,
-	}, nil
-}
-
-// hybridEncrypt performs hybrid encryption (simplified for PoC)
-func (c *CryptoService) hybridEncrypt(data []byte, publicKey *ecdsa.PublicKey) ([]byte, error) {
-	// For this PoC, we'll use a simplified encryption
-	// In production, you'd use proper ECIES or similar
-	
-	// Generate a random "session key"
-	sessionKey := make([]byte, 32)
-	_, err := rand.Read(sessionKey)
+// eciesEncrypt implements proper ECIES encryption
+// Returns: ephemeral_public_key || encrypted_data || auth_tag
+func (c *CryptoService) eciesEncrypt(data []byte, recipientPublicKey *ecdsa.PublicKey) ([]byte, error) {
+	// Step 1: Generate ephemeral key pair
+	ephemeralPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate ephemeral key: %v", err)
 	}
 	
-	// "Encrypt" data with session key (XOR for simplicity)
-	encryptedData := make([]byte, len(data))
-	for i, b := range data {
-		encryptedData[i] = b ^ sessionKey[i%32]
+	// Step 2: Compute ECDH shared secret
+	sharedX, _ := recipientPublicKey.Curve.ScalarMult(recipientPublicKey.X, recipientPublicKey.Y, ephemeralPrivateKey.D.Bytes())
+	sharedSecret := sharedX.Bytes()
+	
+	// Step 3: Derive encryption and MAC keys using HKDF
+	// We need 32 bytes for AES-256 + 32 bytes for HMAC key
+	hkdf := hkdf.New(sha256.New, sharedSecret, nil, []byte("ECIES-encryption"))
+	keyMaterial := make([]byte, 64)
+	if _, err := io.ReadFull(hkdf, keyMaterial); err != nil {
+		return nil, fmt.Errorf("failed to derive keys: %v", err)
 	}
 	
-	// "Encrypt" session key with public key (mock for PoC)
-	encryptedSessionKey := make([]byte, 64) // Mock encrypted key
-	copy(encryptedSessionKey, sessionKey)
+	encryptionKey := keyMaterial[:32]  // AES-256 key
+	macKey := keyMaterial[32:]        // HMAC key
 	
-	// Combine encrypted session key + encrypted data
-	result := append(encryptedSessionKey, encryptedData...)
+	// Step 4: Encrypt with AES-GCM (provides both encryption and authentication)
+	block, err := aes.NewCipher(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+	}
+	
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %v", err)
+	}
+	
+	// Generate random nonce
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, fmt.Errorf("failed to generate nonce: %v", err)
+	}
+	
+	// Encrypt data
+	ciphertext := aesGCM.Seal(nil, nonce, data, nil)
+	
+	// Step 5: Serialize ephemeral public key
+	ephemeralPublicKeyBytes := elliptic.Marshal(elliptic.P256(), ephemeralPrivateKey.PublicKey.X, ephemeralPrivateKey.PublicKey.Y)
+	
+	// Step 6: Construct result: ephemeral_public_key || nonce || ciphertext
+	result := make([]byte, 0, len(ephemeralPublicKeyBytes)+len(nonce)+len(ciphertext))
+	result = append(result, ephemeralPublicKeyBytes...)
+	result = append(result, nonce...)
+	result = append(result, ciphertext...)
+	
+	if c.verbose {
+		log.Printf("[CRYPTO] ECIES encryption: ephemeral key %d bytes, nonce %d bytes, ciphertext %d bytes", 
+			len(ephemeralPublicKeyBytes), len(nonce), len(ciphertext))
+	}
+	
+	// Clear sensitive data
+	for i := range encryptionKey {
+		encryptionKey[i] = 0
+	}
+	for i := range macKey {
+		macKey[i] = 0
+	}
+	for i := range sharedSecret {
+		sharedSecret[i] = 0
+	}
 	
 	return result, nil
 }
 
-// Mock crypto service for testing
-type MockCryptoService struct {
-	verbose bool
-}
-
-func NewMockCryptoService(verbose bool) *MockCryptoService {
-	return &MockCryptoService{verbose: verbose}
-}
-
-func (m *MockCryptoService) GenerateReceiptHash(receipt *models.Receipt) (string, error) {
-	if m.verbose {
-		log.Printf("[MOCK CRYPTO] Generating hash for receipt %s", receipt.TransactionID)
+// eciesDecrypt implements proper ECIES decryption (for completeness/testing)
+// This would be used by the recipient to decrypt the data
+func (c *CryptoService) eciesDecrypt(encryptedData []byte, recipientPrivateKey *ecdsa.PrivateKey) ([]byte, error) {
+	curve := elliptic.P256()
+	keySize := (curve.Params().BitSize + 7) / 8
+	
+	// Parse components: ephemeral_public_key || nonce || ciphertext
+	if len(encryptedData) < 2*keySize+1+12 { // min size: uncompressed point + 12-byte nonce + some ciphertext
+		return nil, fmt.Errorf("encrypted data too short")
 	}
 	
-	// Simple mock hash
-	mockHash := fmt.Sprintf("mock_hash_%s", receipt.TransactionID)
-	hash := sha256.Sum256([]byte(mockHash))
-	return base64.StdEncoding.EncodeToString(hash[:]), nil
-}
-
-func (m *MockCryptoService) EncryptWithEphemeralKey(data []byte, ephemeralKeyPEM string) (string, error) {
-	if m.verbose {
-		log.Printf("[MOCK CRYPTO] Encrypting %d bytes", len(data))
+	// Extract ephemeral public key (uncompressed point: 0x04 + 32 + 32 bytes)
+	ephemeralPubKeyBytes := encryptedData[:2*keySize+1]
+	x, y := elliptic.Unmarshal(curve, ephemeralPubKeyBytes)
+	if x == nil {
+		return nil, fmt.Errorf("invalid ephemeral public key")
 	}
 	
-	// Simple mock encryption (just base64 encode)
-	mockEncrypted := "mock_encrypted_" + base64.StdEncoding.EncodeToString(data)
-	return base64.StdEncoding.EncodeToString([]byte(mockEncrypted)), nil
-}
-
-func (m *MockCryptoService) ValidateEphemeralKey(keyPEM string) error {
-	if m.verbose {
-		log.Printf("[MOCK CRYPTO] Validating ephemeral key")
+	ephemeralPublicKey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
 	}
-	return nil // Always valid for mock
+	
+	// Compute shared secret
+	sharedX, _ := curve.ScalarMult(ephemeralPublicKey.X, ephemeralPublicKey.Y, recipientPrivateKey.D.Bytes())
+	sharedSecret := sharedX.Bytes()
+	
+	// Derive keys
+	hkdf := hkdf.New(sha256.New, sharedSecret, nil, []byte("ECIES-encryption"))
+	keyMaterial := make([]byte, 64)
+	if _, err := io.ReadFull(hkdf, keyMaterial); err != nil {
+		return nil, fmt.Errorf("failed to derive keys: %v", err)
+	}
+	
+	encryptionKey := keyMaterial[:32]
+	
+	// Extract nonce and ciphertext
+	remaining := encryptedData[2*keySize+1:]
+	if len(remaining) < 12 {
+		return nil, fmt.Errorf("missing nonce")
+	}
+	
+	nonce := remaining[:12]
+	ciphertext := remaining[12:]
+	
+	// Decrypt
+	block, err := aes.NewCipher(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+	}
+	
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %v", err)
+	}
+	
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt: %v", err)
+	}
+	
+	// Clear sensitive data
+	for i := range encryptionKey {
+		encryptionKey[i] = 0
+	}
+	for i := range sharedSecret {
+		sharedSecret[i] = 0
+	}
+	
+	return plaintext, nil
 }

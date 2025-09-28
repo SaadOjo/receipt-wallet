@@ -20,12 +20,11 @@ type Receipt struct {
 }
 
 type Item struct {
-	KisimName   string  `json:"kisim_name"`
+	KisimID     int     `json:"kisim_id"`
 	Quantity    int     `json:"quantity"`
 	UnitPrice   float64 `json:"unit_price"`
 	TotalPrice  float64 `json:"total_price"`
 	TaxRate     int     `json:"tax_rate"`
-	Description string  `json:"description,omitempty"`
 }
 
 type TaxBreakdown struct {
@@ -48,11 +47,9 @@ type Transaction struct {
 
 type TransactionItem struct {
 	KisimID     int     `json:"kisim_id"`
-	KisimName   string  `json:"kisim_name"`
 	UnitPrice   float64 `json:"unit_price"`
 	Quantity    int     `json:"quantity"`
 	TaxRate     int     `json:"tax_rate"`
-	Description string  `json:"description,omitempty"`
 }
 
 // API Response models
@@ -67,10 +64,27 @@ type KisimResponse struct {
 }
 
 type KisimInfo struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	TaxRate     int    `json:"tax_rate"`
-	Description string `json:"description"`
+	ID          int     `json:"id"`
+	Name        string  `json:"name"`
+	TaxRate     int     `json:"tax_rate"`
+	PresetPrice float64 `json:"preset_price"`
+}
+
+// KisimLookup provides KISIM information lookup
+type KisimLookup map[int]KisimInfo
+
+// GetKisimInfo returns KISIM information by ID
+func (kl KisimLookup) GetKisimInfo(kisimID int) (KisimInfo, bool) {
+	kisim, exists := kl[kisimID]
+	return kisim, exists
+}
+
+// GetKisimName returns KISIM name by ID  
+func (kl KisimLookup) GetKisimName(kisimID int) string {
+	if kisim, exists := kl[kisimID]; exists {
+		return kisim.Name
+	}
+	return fmt.Sprintf("Unknown KISIM %d", kisimID)
 }
 
 // Helper methods
@@ -103,7 +117,7 @@ func (r *Receipt) CalculateTotals() {
 	r.TotalAmount = total
 }
 
-func (r *Receipt) FormatForDisplay() string {
+func (r *Receipt) FormatForDisplay(kisimLookup KisimLookup) string {
 	layout := `
 ========================================
          %s
@@ -129,8 +143,9 @@ Fiş No: %s
 	
 	items := ""
 	for _, item := range r.Items {
+		kisimName := kisimLookup.GetKisimName(item.KisimID)
 		items += fmt.Sprintf("%-20s %dx%.2f ₺%.2f\n", 
-			item.KisimName, 
+			kisimName, 
 			item.Quantity, 
 			item.UnitPrice, 
 			item.TotalPrice,

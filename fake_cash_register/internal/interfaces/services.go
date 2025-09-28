@@ -2,16 +2,16 @@ package interfaces
 
 import "fake-cash-register/internal/models"
 
-// RevenueAuthorityService handles receipt hash signing
+// RevenueAuthorityService handles receipt hash signing with binary data
 type RevenueAuthorityService interface {
-	SignHash(hash string) (string, error)
+	SignHash(hash []byte) ([]byte, error) 
 	GetPublicKey() (string, error)
 }
 
 // ReceiptBankService handles encrypted receipt submission
 type ReceiptBankService interface {
 	SubmitReceipt(ephemeralKey, encryptedData string) error
-	SetWebhookHandler(handler WebhookHandler)
+	SetWebhookHandler(handler WebhookHandler) //Question to self: Should not the SubmitReceipt return the handler. 
 }
 
 // QRScannerService handles ephemeral key input
@@ -20,18 +20,18 @@ type QRScannerService interface {
 	ValidateKey(key string) error
 }
 
-// CryptoService handles cryptographic operations
+// CryptoService handles cryptographic operations with binary data
 type CryptoService interface {
-	GenerateReceiptHash(receipt *models.Receipt) (string, error)
-	EncryptWithEphemeralKey(data []byte, ephemeralKeyPEM string) (string, error)
+	GenerateReceiptHash(binaryReceipt []byte) []byte
+	EncryptWithEphemeralKey(data []byte, ephemeralKeyPEM string) ([]byte, error)
 	ValidateEphemeralKey(keyPEM string) error
 }
 
 // TransactionService handles transaction workflow
 type TransactionService interface {
 	StartTransaction() *models.Transaction
-	AddItem(tx *models.Transaction, kisimID int, kisimName string, unitPrice float64, taxRate int, description string) error
-	SetQuantity(tx *models.Transaction, itemIndex, quantity int) error
+	AddItem(tx *models.Transaction, kisimID int, quantity int) error
+	UpdateItemQuantity(tx *models.Transaction, kisimID int, quantity int) error
 	SetPaymentMethod(tx *models.Transaction, method string) error
 	GenerateReceipt(tx *models.Transaction, storeInfo StoreInfo) (*models.Receipt, error)
 	ProcessTransaction(receipt *models.Receipt, ephemeralKey string) error

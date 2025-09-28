@@ -17,33 +17,34 @@ func NewMockRevenueAuthority(verbose bool) *MockRevenueAuthority {
 	}
 }
 
-func (m *MockRevenueAuthority) SignHash(hash string) (string, error) {
+func (m *MockRevenueAuthority) SignHash(binaryHash []byte) ([]byte, error) {
 	if m.verbose {
-		log.Printf("[MOCK] Revenue Authority: Signing hash %s", hash[:8]+"...")
+		hashBase64 := base64.StdEncoding.EncodeToString(binaryHash)
+		log.Printf("[MOCK] Revenue Authority: Signing hash %s", hashBase64[:8]+"...")
 	}
 	
-	// Validate hash format (should be 44 characters base64)
-	if len(hash) != 44 {
-		return "", fmt.Errorf("invalid hash length: expected 44 characters, got %d", len(hash))
-	}
-	
-	_, err := base64.StdEncoding.DecodeString(hash)
-	if err != nil {
-		return "", fmt.Errorf("invalid base64 encoding: %v", err)
+	// Validate hash format (should be 32 bytes for SHA-256)
+	if len(binaryHash) != 32 {
+		return nil, fmt.Errorf("invalid hash length: expected 32 bytes, got %d", len(binaryHash))
 	}
 	
 	// Simulate processing delay
 	time.Sleep(100 * time.Millisecond)
 	
-	// Generate a mock signature (base64 encoded)
-	mockSig := fmt.Sprintf("mock_signature_%d_%s", time.Now().Unix(), hash[:8])
-	signature := base64.StdEncoding.EncodeToString([]byte(mockSig))
+	// Generate a mock 64-byte ECDSA signature (r||s format)
+	binarySignature := make([]byte, 64)
+	
+	// Fill with deterministic mock data based on hash
+	mockSigString := fmt.Sprintf("mock_signature_%d", time.Now().Unix())
+	copy(binarySignature[:32], binaryHash) // Use hash as r component
+	copy(binarySignature[32:], []byte(fmt.Sprintf("%-32s", mockSigString))[:32]) // Mock s component
 	
 	if m.verbose {
-		log.Printf("[MOCK] Revenue Authority: Generated signature %s", signature[:16]+"...")
+		signatureBase64 := base64.StdEncoding.EncodeToString(binarySignature)
+		log.Printf("[MOCK] Revenue Authority: Generated signature %s", signatureBase64[:16]+"...")
 	}
 	
-	return signature, nil
+	return binarySignature, nil
 }
 
 func (m *MockRevenueAuthority) GetPublicKey() (string, error) {

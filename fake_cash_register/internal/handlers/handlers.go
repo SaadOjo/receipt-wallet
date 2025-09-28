@@ -53,7 +53,7 @@ func (h *CashRegisterHandler) GetKisim(c *gin.Context) {
 			ID:          k.ID,
 			Name:        k.Name,
 			TaxRate:     k.TaxRate,
-			Description: k.Description,
+			PresetPrice: k.PresetPrice,
 		}
 	}
 
@@ -80,11 +80,8 @@ func (h *CashRegisterHandler) StartTransaction(c *gin.Context) {
 // POST /api/transaction/add-item - Add item to current transaction
 func (h *CashRegisterHandler) AddItem(c *gin.Context) {
 	var req struct {
-		KisimID     int     `json:"kisim_id" binding:"required"`
-		KisimName   string  `json:"kisim_name" binding:"required"`
-		UnitPrice   float64 `json:"unit_price" binding:"required"`
-		TaxRate     int     `json:"tax_rate" binding:"required"`
-		Description string  `json:"description"`
+		KisimID  int `json:"kisim_id" binding:"required"`
+		Quantity int `json:"quantity" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -99,7 +96,7 @@ func (h *CashRegisterHandler) AddItem(c *gin.Context) {
 		h.currentTx = h.services.Transaction.StartTransaction()
 	}
 
-	err := h.services.Transaction.AddItem(h.currentTx, req.KisimID, req.KisimName, req.UnitPrice, req.TaxRate, req.Description)
+	err := h.services.Transaction.AddItem(h.currentTx, req.KisimID, req.Quantity)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -115,11 +112,12 @@ func (h *CashRegisterHandler) AddItem(c *gin.Context) {
 	})
 }
 
-// POST /api/transaction/set-quantity - Set quantity for item
-func (h *CashRegisterHandler) SetQuantity(c *gin.Context) {
+
+// POST /api/transaction/update-item-quantity - Update quantity for item
+func (h *CashRegisterHandler) UpdateItemQuantity(c *gin.Context) {
 	var req struct {
-		ItemIndex int `json:"item_index" binding:"required"`
-		Quantity  int `json:"quantity" binding:"required"`
+		KisimID  int `json:"kisim_id" binding:"required"`
+		Quantity int `json:"quantity" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -138,7 +136,7 @@ func (h *CashRegisterHandler) SetQuantity(c *gin.Context) {
 		return
 	}
 
-	err := h.services.Transaction.SetQuantity(h.currentTx, req.ItemIndex, req.Quantity)
+	err := h.services.Transaction.UpdateItemQuantity(h.currentTx, req.KisimID, req.Quantity)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

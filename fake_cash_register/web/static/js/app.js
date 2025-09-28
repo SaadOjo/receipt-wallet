@@ -6,10 +6,9 @@ class CashRegister {
             paymentMethod: '',
             total: 0
         };
-        this.selectedItemIndex = -1;
-        this.selectedKisim = null;
-        this.priceInput = '';
-        this.quantityInput = '1';
+        this.currentInput = ''; // Current digit input being entered
+        this.nextItemQuantity = 1; // Quantity captured by MIKTAR button
+        this.inputMode = 'ambiguous'; // 'ambiguous', 'quantity', or 'price' mode
         this.kisim = [];
         this.qrScanner = null;
         
@@ -46,138 +45,144 @@ class CashRegister {
                 const kisimId = parseInt(e.currentTarget.dataset.kisimId);
                 const kisimName = e.currentTarget.dataset.kisimName;
                 const taxRate = parseInt(e.currentTarget.dataset.taxRate);
-                this.selectKisim(kisimId, kisimName, taxRate);
+                const presetPrice = parseFloat(e.currentTarget.dataset.presetPrice);
+                this.addKisimItem(kisimId, kisimName, taxRate, presetPrice);
             });
         });
         
-        // Numeric keypad for price entry
+        // Numeric keypad
         document.querySelectorAll('.num-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const num = e.currentTarget.dataset.num;
-                this.addToPriceInput(num);
+                this.addToCurrentInput(num);
             });
         });
         
         document.getElementById('clear-btn').addEventListener('click', () => {
-            this.clearPriceInput();
+            this.clearCurrentInput();
         });
         
-        // Add item button
-        document.getElementById('add-item-btn').addEventListener('click', () => {
-            this.addItem();
+        // MIKTAR button
+        document.getElementById('miktar-btn').addEventListener('click', () => {
+            this.captureMiktar();
         });
         
-        // Quantity controls
-        document.getElementById('qty-plus').addEventListener('click', () => {
-            this.adjustQuantity(1);
-        });
-        
-        document.getElementById('qty-minus').addEventListener('click', () => {
-            this.adjustQuantity(-1);
-        });
-        
-        // Update quantity when quantity input changes
-        document.getElementById('quantity-input').addEventListener('change', () => {
-            if (this.selectedItemIndex >= 0) {
-                this.updateSelectedItemQuantity();
-            }
-        });
-        
-        // Payment method buttons
+        // Payment method buttons - immediately complete transaction
         document.querySelectorAll('.payment-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const method = e.currentTarget.dataset.method;
-                this.setPaymentMethod(method);
+                this.completeTransactionImmediately(method);
             });
         });
         
         // Action buttons
-        document.getElementById('checkout-btn').addEventListener('click', () => {
-            this.checkout();
-        });
-        
-        document.getElementById('delete-item-btn').addEventListener('click', () => {
-            this.deleteSelectedItem();
-        });
-        
         document.getElementById('cancel-btn').addEventListener('click', () => {
             this.cancelTransaction();
         });
         
-        // Transaction item selection
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('.transaction-item')) {
-                const index = parseInt(e.target.closest('.transaction-item').dataset.index);
-                this.selectTransactionItem(index);
-            }
-        });
         
         // Modal buttons
         document.getElementById('qr-cancel').addEventListener('click', () => {
             this.hideQRModal();
         });
-        
-        document.getElementById('receipt-cancel').addEventListener('click', () => {
-            this.hideReceiptModal();
-        });
-        
-        document.getElementById('receipt-confirm').addEventListener('click', () => {
-            this.processTransaction();
-        });
     }
     
-    selectKisim(kisimId, kisimName, taxRate) {
-        this.selectedKisim = { id: kisimId, name: kisimName, taxRate: taxRate };
+    async addKisimItem(kisimId, kisimName, taxRate, presetPrice) {
+        let finalPrice = presetPrice;
+        let finalQuantity = this.nextItemQuantity;
         
-        // Highlight selected kisim
-        document.querySelectorAll('.kisim-btn').forEach(btn => {
-            btn.classList.remove('ring-4', 'ring-white');
-        });
-        
-        event.currentTarget.classList.add('ring-4', 'ring-white');
-        
-        // Enable add button if price is entered
-        this.updateAddButton();
-        
-        this.log(`Kısım seçildi: ${kisimName}`);
-    }
-    
-    addToPriceInput(num) {
-        const priceInput = document.getElementById('price-input');
-        const currentValue = priceInput.value;
-        
-        if (num === '.' && currentValue.includes('.')) {
-            return; // Only one decimal point
+        // Handle current input based on mode
+        if (this.currentInput) {
+            // Convert comma to period for parseFloat
+            const inputValue = parseFloat(this.currentInput.replace(',', '.'));
+            
+            if (this.inputMode === 'price') {
+                // Explicitly in price mode
+                finalPrice = inputValue > 0 ? inputValue : presetPrice;
+            } else if (this.inputMode === 'ambiguous') {
+                // Ambiguous mode: treat as price, quantity defaults to 1
+                finalPrice = inputValue > 0 ? inputValue : presetPrice;
+                finalQuantity = 1;
+            }
         }
         
-        if (currentValue.length < 8) { // Max 8 characters
-            priceInput.value = currentValue + num;
-            this.updateAddButton();
+        // Use the backend service to add the item
+        if (finalQuantity === 1) {
+            // Standard add item (repeated presses will increment in backend)
+            await this.addNewItem(kisimId, kisimName, finalPrice, taxRate);
+            this.log(`Ürün eklendi: ${kisimName} - ₺${finalPrice.toFixed(2)}`);
+        } else {
+            // Add item with custom quantity
+            await this.addItemWithCustomQuantity(kisimId, kisimName, finalPrice, taxRate, finalQuantity);
+            this.log(`Ürün eklendi: ${kisimName} - ₺${finalPrice.toFixed(2)} x${finalQuantity}`);
+        }
+        
+        // Reset state after adding item
+        this.resetInputState();
+    }
+    
+    addToCurrentInput(num) {
+        // Convert period to comma for Turkish locale
+        if (num === '.') {
+            num = ',';
+        }
+        
+        if (num === ',' && this.currentInput.includes(',')) {
+            return; // Only one decimal separator
+        }
+        
+        if (this.currentInput.length < 8) { // Max 8 characters
+            this.currentInput += num;
+            this.updateInputDisplay();
         }
     }
     
-    clearPriceInput() {
-        document.getElementById('price-input').value = '';
-        this.updateAddButton();
+    clearCurrentInput() {
+        this.currentInput = '';
+        this.updateInputDisplay();
     }
     
-    updateAddButton() {
-        const priceInput = document.getElementById('price-input');
-        const addBtn = document.getElementById('add-item-btn');
-        const price = parseFloat(priceInput.value);
+    captureMiktar() {
+        // Whatever is currently entered becomes the quantity
+        const quantity = parseInt(this.currentInput) || 1;
+        this.nextItemQuantity = Math.max(1, quantity);
+        this.inputMode = 'price';
+        this.currentInput = '';
         
-        addBtn.disabled = !this.selectedKisim || !price || price <= 0;
+        this.log(`MIKTAR: Sonraki ürün miktarı ${this.nextItemQuantity} olarak ayarlandı`);
+        
+        // Visual feedback to show MIKTAR was pressed
+        const miktarBtn = document.getElementById('miktar-btn');
+        miktarBtn.classList.add('ring-4', 'ring-yellow-300');
+        setTimeout(() => {
+            miktarBtn.classList.remove('ring-4', 'ring-yellow-300');
+        }, 1000);
+        
+        this.updateInputDisplay();
     }
     
-    adjustQuantity(delta) {
-        const qtyInput = document.getElementById('quantity-input');
-        let qty = parseInt(qtyInput.value) || 1;
-        qty = Math.max(1, qty + delta);
-        qtyInput.value = qty;
-        
-        // If an item is selected, update its quantity immediately
-        if (this.selectedItemIndex >= 0) {
-            this.updateSelectedItemQuantity();
+    resetInputState() {
+        this.currentInput = '';
+        this.nextItemQuantity = 1;
+        this.inputMode = 'ambiguous';
+        this.updateInputDisplay();
+    }
+    
+    updateInputDisplay() {
+        const inputElement = document.getElementById('current-input');
+        if (this.currentInput) {
+            let modeLabel = '';
+            if (this.inputMode === 'price') {
+                modeLabel = 'FİYAT: ';
+            } else if (this.inputMode === 'quantity') {
+                modeLabel = 'MİKTAR: ';
+            } else {
+                // ambiguous mode - show the number without label
+                modeLabel = '';
+            }
+            inputElement.textContent = modeLabel + this.currentInput;
+        } else {
+            inputElement.textContent = '';
         }
     }
     
@@ -190,53 +195,54 @@ class CashRegister {
         }
     }
     
-    async addItem() {
-        if (!this.selectedKisim) {
-            this.showError('Kısım seçin!');
-            return;
-        }
-        
-        const priceInput = document.getElementById('price-input');
-        const qtyInput = document.getElementById('quantity-input');
-        const price = parseFloat(priceInput.value);
-        const quantity = parseInt(qtyInput.value) || 1;
-        
-        if (!price || price <= 0) {
-            this.showError('Geçerli fiyat girin!');
-            return;
-        }
-        
+    async addNewItem(kisimId, kisimName, unitPrice, taxRate) {
         try {
             const response = await fetch('/api/transaction/add-item', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    kisim_id: this.selectedKisim.id,
-                    kisim_name: this.selectedKisim.name,
-                    unit_price: price,
-                    tax_rate: this.selectedKisim.taxRate,
-                    description: `₺${price.toFixed(2)}`
+                    kisim_id: kisimId,
+                    kisim_name: kisimName,
+                    unit_price: unitPrice,
+                    tax_rate: taxRate
                 })
             });
             
             const data = await response.json();
             if (data.success) {
                 this.currentTransaction.items = data.items;
-                
-                // Set quantity if not 1
-                if (quantity !== 1) {
-                    const lastIndex = data.items.length - 1;
-                    await this.setItemQuantity(lastIndex, quantity);
-                }
-                
                 this.updateTransactionDisplay();
-                this.clearPriceInput();
-                this.log(`Ürün eklendi: ${this.selectedKisim.name} - ₺${price.toFixed(2)}`);
             } else {
                 this.showError(data.message);
             }
         } catch (error) {
             this.showError('Ürün eklenemedi: ' + error.message);
+        }
+    }
+    
+    async addItemWithCustomQuantity(kisimId, kisimName, unitPrice, taxRate, quantity) {
+        try {
+            const response = await fetch('/api/transaction/add-item-with-quantity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    kisim_id: kisimId,
+                    kisim_name: kisimName,
+                    unit_price: unitPrice,
+                    tax_rate: taxRate,
+                    quantity: quantity
+                })
+            });
+            
+            const data = await response.json();
+            if (data.success) {
+                this.currentTransaction.items = data.items;
+                this.updateTransactionDisplay();
+            } else {
+                this.showError(data.message);
+            }
+        } catch (error) {
+            this.showError('Miktar ile ürün eklenemedi: ' + error.message);
         }
     }
     
@@ -261,45 +267,7 @@ class CashRegister {
         }
     }
     
-    async updateSelectedItemQuantity() {
-        if (this.selectedItemIndex === -1) {
-            this.showError('Ürün seçin!');
-            return;
-        }
-        
-        const qtyInput = document.getElementById('quantity-input');
-        const quantity = parseInt(qtyInput.value) || 1;
-        
-        if (quantity <= 0) {
-            // Delete item if quantity is 0 or negative
-            await this.deleteSelectedItem();
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/transaction/set-quantity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    item_index: this.selectedItemIndex,
-                    quantity: quantity
-                })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                this.currentTransaction.items = data.items;
-                this.updateTransactionDisplay();
-                this.log(`Miktar güncellendi: ${quantity}`);
-            } else {
-                this.showError(data.message);
-            }
-        } catch (error) {
-            this.showError('Miktar güncellenemedi: ' + error.message);
-        }
-    }
-    
-    async setPaymentMethod(method) {
+    async completeTransactionImmediately(method) {
         try {
             // Ensure we have an active transaction
             if (!this.currentTransaction || this.currentTransaction.items.length === 0) {
@@ -307,81 +275,38 @@ class CashRegister {
                 return;
             }
             
-            const response = await fetch('/api/transaction/payment', {
+            this.log(`Ödeme yöntemi: ${method} - İşlem tamamlanıyor...`);
+            
+            // Set payment method
+            const paymentResponse = await fetch('/api/transaction/payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ payment_method: method })
             });
             
-            const data = await response.json();
-            if (data.success) {
-                this.currentTransaction.paymentMethod = method;
-                document.getElementById('payment-display').textContent = `Ödeme: ${method}`;
-                
-                // Update payment button styles
-                document.querySelectorAll('.payment-btn').forEach(btn => {
-                    btn.classList.remove('ring-4', 'ring-white');
-                });
-                
-                if (method === 'Nakit') {
-                    document.getElementById('payment-cash').classList.add('ring-4', 'ring-white');
-                } else {
-                    document.getElementById('payment-card').classList.add('ring-4', 'ring-white');
-                }
-                
-                this.updateCheckoutButton();
-                this.log(`Ödeme yöntemi: ${method}`);
-            } else {
-                this.showError(data.message);
+            const paymentData = await paymentResponse.json();
+            if (!paymentData.success) {
+                this.showError(paymentData.message);
+                return;
             }
-        } catch (error) {
-            this.showError('Ödeme yöntemi ayarlanamadı: ' + error.message);
-        }
-    }
-    
-    async checkout() {
-        if (this.currentTransaction.items.length === 0) {
-            this.showError('Sepette ürün yok!');
-            return;
-        }
-        
-        if (!this.currentTransaction.paymentMethod) {
-            this.showError('Ödeme yöntemi seçin!');
-            return;
-        }
-        
-        // Generate receipt preview
-        try {
-            const response = await fetch('/api/transaction/generate-receipt', {
-                method: 'POST'
-            });
             
-            const data = await response.json();
-            if (data.success) {
-                this.showReceiptModal(data.receipt);
-                this.log('Fiş önizleme oluşturuldu');
+            // Check if standalone mode or needs QR scan
+            const isStandaloneMode = document.body.dataset.standalone === 'true';
+            
+            if (isStandaloneMode) {
+                // Process immediately without QR scan
+                await this.submitTransaction('mock_ephemeral_key');
             } else {
-                this.showError(data.message);
+                // Show QR scanner
+                this.showQRModal();
             }
+            
         } catch (error) {
-            this.showError('Fiş oluşturulamadı: ' + error.message);
+            this.showError('İşlem tamamlanamadı: ' + error.message);
+            this.resetTransaction();
         }
     }
     
-    async processTransaction() {
-        this.hideReceiptModal();
-        
-        // Check if standalone mode or needs QR scan
-        const standaloneMode = document.querySelector('[data-standalone]') !== null;
-        
-        if (standaloneMode) {
-            // Process without QR scan
-            await this.submitTransaction('mock_ephemeral_key');
-        } else {
-            // Show QR scanner
-            this.showQRModal();
-        }
-    }
     
     async submitTransaction(ephemeralKey) {
         try {
@@ -423,8 +348,7 @@ class CashRegister {
             paymentMethod: '',
             total: 0
         };
-        this.selectedItemIndex = -1;
-        this.selectedKisim = null;
+        this.resetInputState();
         this.updateTransactionDisplay();
         
         // Clear payment selection
@@ -433,106 +357,43 @@ class CashRegister {
             btn.classList.remove('ring-4', 'ring-white');
         });
         
-        // Clear kisim selection
-        document.querySelectorAll('.kisim-btn').forEach(btn => {
-            btn.classList.remove('ring-4', 'ring-white');
-        });
-        
-        // Clear inputs
-        this.clearPriceInput();
-        document.getElementById('quantity-input').value = '1';
-        
-        this.updateCheckoutButton();
         this.startTransaction();
     }
     
     updateTransactionDisplay() {
         const container = document.getElementById('transaction-display');
         const totalElement = document.getElementById('total-display');
-        const deleteBtn = document.getElementById('delete-item-btn');
         
         if (this.currentTransaction.items.length === 0) {
-            container.innerHTML = '<div class="text-center text-gray-500 py-8 font-sans">Kısım seçin...</div>';
-            totalElement.textContent = '₺0.00';
+            container.innerHTML = '<div class="text-center text-opacity-60 py-4 text-xs">0,00</div>';
+            totalElement.textContent = '0,00';
             this.currentTransaction.total = 0;
-            deleteBtn.disabled = true;
         } else {
             let total = 0;
             const itemsHtml = this.currentTransaction.items.map((item, index) => {
                 const itemTotal = item.quantity * item.unit_price;
                 total += itemTotal;
-                const isSelected = index === this.selectedItemIndex;
-                const bgClass = isSelected ? 'bg-blue-900' : '';
                 
                 return `
-                    <div class="transaction-item flex justify-between py-1 cursor-pointer hover:bg-gray-800 rounded px-2 ${bgClass}" data-index="${index}">
-                        <span class="truncate flex-1">${item.kisim_name}</span>
-                        <span class="w-16 text-center">${item.quantity}</span>
-                        <span class="w-20 text-right">₺${itemTotal.toFixed(2)}</span>
+                    <div class="flex justify-between text-xs py-1">
+                        <span class="truncate">${item.kisim_name.substring(0, 8)}</span>
+                        <span>${item.quantity}</span>
+                        <span>${this.formatTurkishCurrency(itemTotal)}</span>
                     </div>
                 `;
             }).join('');
             
             container.innerHTML = itemsHtml;
-            totalElement.textContent = `₺${total.toFixed(2)}`;
+            totalElement.textContent = this.formatTurkishCurrency(total);
             this.currentTransaction.total = total;
-            deleteBtn.disabled = this.selectedItemIndex === -1;
-        }
-        
-        this.updateCheckoutButton();
-    }
-    
-    selectTransactionItem(index) {
-        this.selectedItemIndex = index;
-        this.updateTransactionDisplay();
-        this.log(`Seçili ürün: ${this.currentTransaction.items[index]?.kisim_name}`);
-    }
-    
-    async deleteSelectedItem() {
-        if (this.selectedItemIndex === -1) {
-            this.showError('Silmek için ürün seçin!');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/transaction/set-quantity', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    item_index: this.selectedItemIndex,
-                    quantity: 0 // Setting to 0 removes the item
-                })
-            });
-            
-            const data = await response.json();
-            if (data.success) {
-                this.currentTransaction.items = data.items;
-                this.selectedItemIndex = -1;
-                this.updateTransactionDisplay();
-                this.log('Ürün silindi');
-            } else {
-                this.showError(data.message);
-            }
-        } catch (error) {
-            this.showError('Ürün silinemedi: ' + error.message);
         }
     }
     
-    selectItem(index) {
-        this.selectedItemIndex = index;
-        const item = this.currentTransaction.items[index];
-        
-        // Update quantity input
-        document.getElementById('quantity-input').value = item.quantity;
-        
-        this.log(`Ürün seçildi: ${item.kisim_name}`);
+    formatTurkishCurrency(amount) {
+        // Format as Turkish currency with comma as decimal separator
+        return amount.toFixed(2).replace('.', ',');
     }
     
-    updateCheckoutButton() {
-        const btn = document.getElementById('checkout-btn');
-        const canCheckout = this.currentTransaction.items.length > 0 && this.currentTransaction.paymentMethod;
-        btn.disabled = !canCheckout;
-    }
     
     showQRModal() {
         document.getElementById('qr-modal').classList.remove('hidden');
@@ -578,55 +439,21 @@ class CashRegister {
         }
     }
     
-    showReceiptModal(receipt) {
-        const modal = document.getElementById('receipt-modal');
-        const content = document.getElementById('receipt-content');
-        
-        // Format receipt for display
-        const receiptText = this.formatReceipt(receipt);
-        content.textContent = receiptText;
-        
-        modal.classList.remove('hidden');
-    }
-    
-    hideReceiptModal() {
-        document.getElementById('receipt-modal').classList.add('hidden');
-    }
-    
-    formatReceipt(receipt) {
-        let text = '';
-        text += '========================================\n';
-        text += `         ${receipt.store_name}\n`;
-        text += '========================================\n';
-        text += `VKN: ${receipt.store_vkn}\n`;
-        text += `${receipt.store_address}\n`;
-        text += '========================================\n';
-        text += `Tarih: ${new Date(receipt.timestamp).toLocaleString('tr-TR')}\n`;
-        text += `İşlem No: ${receipt.transaction_id}\n`;
-        text += `Fiş No: ${receipt.receipt_serial}\n`;
-        text += '========================================\n\n';
-        
-        receipt.items.forEach(item => {
-            text += `${item.kisim_name.padEnd(20)} ${item.quantity}x${item.unit_price.toFixed(2)} ₺${item.total_price.toFixed(2)}\n`;
-        });
-        
-        text += '\n----------------------------------------\n';
-        text += `KDV %10: ₺${receipt.tax_breakdown.tax_10_percent.tax_amount.toFixed(2)}\n`;
-        text += `KDV %20: ₺${receipt.tax_breakdown.tax_20_percent.tax_amount.toFixed(2)}\n`;
-        text += `Toplam KDV: ₺${receipt.tax_breakdown.total_tax.toFixed(2)}\n\n`;
-        text += `GENEL TOPLAM: ₺${receipt.total_amount.toFixed(2)}\n`;
-        text += `Ödeme: ${receipt.payment_method}\n`;
-        text += '========================================\n';
-        text += `Z Rapor No: ${receipt.z_report_number}\n`;
-        text += '========================================\n';
-        
-        return text;
-    }
     
     updateClock() {
         const now = new Date();
-        const timeString = now.toLocaleTimeString('tr-TR');
-        document.getElementById('current-time').textContent = timeString;
+        const timeString = now.toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        const dateString = now.toLocaleDateString('tr-TR', {day: '2-digit', month: '2-digit', year: 'numeric'});
+        
+        const timeElement = document.getElementById('current-time');
+        if (timeElement) {
+            timeElement.textContent = timeString;
+        }
+        
+        const dateElement = document.getElementById('current-date');
+        if (dateElement) {
+            dateElement.textContent = dateString;
+        }
     }
     
     showSuccess(message) {

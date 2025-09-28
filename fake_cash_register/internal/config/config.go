@@ -34,10 +34,10 @@ type Config struct {
 }
 
 type Kisim struct {
-	ID          int    `yaml:"id"`
-	Name        string `yaml:"name"`
-	TaxRate     int    `yaml:"tax_rate"`
-	Description string `yaml:"description"`
+	ID          int     `yaml:"id"`
+	Name        string  `yaml:"name"`
+	TaxRate     int     `yaml:"tax_rate"`
+	PresetPrice float64 `yaml:"preset_price"`
 }
 
 func Load() *Config {

@@ -20,8 +20,8 @@ kisim:
   - id: 1
     name: "Temel Gıda"
     tax_rate: 10
-    description: "Ekmek, süt, temel gıda maddeleri"
+    preset_price: 5.50
   - id: 2
     name: "Yemek"
     tax_rate: 20
-    description: "Hazır yemek, atıştırmalık, içecek"
+    preset_price: 12.75
